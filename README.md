@@ -1,4 +1,4 @@
-# notes
+# Perun Notes
 
 A sidebar for Claude Code that keeps notes beside the chat, per project folder and across sessions.
 
@@ -19,7 +19,7 @@ A sidebar for Claude Code that keeps notes beside the chat, per project folder a
 At the prompt of a Claude Code terminal session:
 
 ```text
-/plugin install notes --marketplace rafski/claude-notes
+/plugin install perun-notes --marketplace rafski/perun-notes
 ```
 
 Answer `y` to add the marketplace, then pick a scope (user scope loads it in every session).
@@ -27,9 +27,9 @@ Answer `y` to add the marketplace, then pick a scope (user scope loads it in eve
 From a shell:
 
 ```bash
-claude plugin install notes --marketplace rafski/claude-notes
+claude plugin install perun-notes --marketplace rafski/perun-notes
 ```
 
-In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `rafski/claude-notes`, then Add plugin.
+In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `rafski/perun-notes`, then Add plugin.
 
 This repository is private: the install works only for people who can read it on GitHub and whose machine already has a git credential for github.com (an SSH key, or `gh auth login` then `gh auth setup-git`). The install never prompts for one.

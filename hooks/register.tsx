@@ -5,35 +5,35 @@ import type { Note, NoteKind } from '../types'
 import { MASCOT_COLUMNS, mascotSvg } from './mascot-art'
 
 const PANE = 'notes'
-const TITLE = 'Notes'
+const TITLE = 'Perun Notes'
 
-const notes = atom({ plugin: 'notes', key: 'notes' } as const, [])
-const project = atom({ plugin: 'notes', key: 'project' } as const, '')
-const lastQuestion = atom({ plugin: 'notes', key: 'lastQuestion' } as const, '')
-const lastAnswer = atom({ plugin: 'notes', key: 'lastAnswer' } as const, '')
-const draftKind = atom({ plugin: 'notes', key: 'draftKind' } as const, 'note')
-const expanded = atom({ plugin: 'notes', key: 'expanded' } as const, '')
-const lastDeleted = atom({ plugin: 'notes', key: 'lastDeleted' } as const, [])
-const query = atom({ plugin: 'notes', key: 'query' } as const, '')
+const notes = atom({ plugin: 'perun-notes', key: 'notes' } as const, [])
+const project = atom({ plugin: 'perun-notes', key: 'project' } as const, '')
+const lastQuestion = atom({ plugin: 'perun-notes', key: 'lastQuestion' } as const, '')
+const lastAnswer = atom({ plugin: 'perun-notes', key: 'lastAnswer' } as const, '')
+const draftKind = atom({ plugin: 'perun-notes', key: 'draftKind' } as const, 'note')
+const expanded = atom({ plugin: 'perun-notes', key: 'expanded' } as const, '')
+const lastDeleted = atom({ plugin: 'perun-notes', key: 'lastDeleted' } as const, [])
+const query = atom({ plugin: 'perun-notes', key: 'query' } as const, '')
 // Bumped on every add, pin and send: Perun strikes his axe.
-const strikes = atom({ plugin: 'notes', key: 'strikes' } as const, 0)
+const strikes = atom({ plugin: 'perun-notes', key: 'strikes' } as const, 0)
 // The item just added, drawn lit for a moment.
-const fresh = atom({ plugin: 'notes', key: 'fresh' } as const, '')
+const fresh = atom({ plugin: 'perun-notes', key: 'fresh' } as const, '')
 
 const FRESH_MS = 1600
 
 // A deleted item is struck by lightning before it goes: the bolt, the crackle, the embers.
-const zap = atom({ plugin: 'notes', key: 'zap' } as const, { id: '', frame: 0 })
+const zap = atom({ plugin: 'perun-notes', key: 'zap' } as const, { id: '', frame: 0 })
 const ZAP_FRAMES_MS = [0, 140, 280]
 const ZAP_DONE_MS = 440
 const LIGHTNING = '#ffe45c'
 
 // A ticked todo gets a small spark in its box: a bolt, then a bright tick, then rest.
-const spark = atom({ plugin: 'notes', key: 'spark' } as const, { id: '', frame: 0 })
+const spark = atom({ plugin: 'perun-notes', key: 'spark' } as const, { id: '', frame: 0 })
 const SPARK_STEP_MS = 120
 const SPARK_DONE_MS = 280
 
-const wasClosed = atom({ plugin: 'notes', key: 'wasClosed' } as const, false)
+const wasClosed = atom({ plugin: 'perun-notes', key: 'wasClosed' } as const, false)
 // Whether the pane opens by itself at the start of a session; off, it waits for /notes.
 const AUTO_OPEN_KEY = 'autoOpen'
 
@@ -301,7 +301,7 @@ export const register: Register = on => {
     return { text: isPinned ? 'Pinned.' : 'Nothing to pin yet.' }
   })
 
-  on('tool.call', { tool: 'mcp__notes__add' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__perun-notes__add' }, async ($, e) => {
     const input = e as unknown as { kind?: string; text?: string }
     const text = typeof input.text === 'string' ? input.text.trim() : ''
     if (text === '') return { deny: 'text is empty' }
@@ -309,7 +309,7 @@ export const register: Register = on => {
     return { result: `Added ${input.kind === 'todo' ? 'a todo' : 'a note'} to the sidebar.` }
   })
 
-  on('tool.call', { tool: 'mcp__notes__list' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__perun-notes__list' }, async ($, e) => {
     const input = e as unknown as { query?: string }
     const q = typeof input.query === 'string' ? input.query.trim() : ''
     const list = (await read($, notes)).filter(n => matches(n, q))
@@ -480,7 +480,8 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" width={w} paddingX={1}>
         {w >= MASCOT_COLUMNS + 20 ? (
-          <Box columnGap={2}>
+          // A blank row above, so his helmet does not run into the tab row.
+          <Box columnGap={2} marginTop={1}>
             {/* Only the terminal and desktop run a Client's frame clock. */}
             {'Client' in els && (e.surface === 'terminal' || e.surface === 'desktop') ? (
               <els.Client key="perun" module="./mascot.tsx" props={{ strikes: strikeCount }} />
@@ -489,7 +490,7 @@ export const register: Register = on => {
             ) : null}
             <Box flexDirection="column" justifyContent="center" flexShrink={1}>
               <Text color={C.accent} bold>
-                ✎ notes
+                ✎ perun notes
               </Text>
               <Text dimColor>{`${openCount} open · ${pinCount} pinned`}</Text>
               <Text color={C.faint} italic>
@@ -500,7 +501,7 @@ export const register: Register = on => {
         ) : (
           <Box justifyContent="space-between">
             <Text color={C.accent} bold>
-              ✎ notes
+              ✎ perun notes
             </Text>
             <Text dimColor>{`${openCount} open · ${pinCount} pinned`}</Text>
           </Box>

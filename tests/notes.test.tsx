@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 const PANE = {
-  plugin: 'notes',
+  plugin: 'perun-notes',
   component: 'Pane',
   requestId: 'notes',
   surface: 'terminal',

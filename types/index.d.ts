@@ -12,7 +12,7 @@ export type Note = {
 
 declare module 'claude-code' {
   interface PluginState {
-    notes: {
+    'perun-notes': {
       notes: Note[]
       project: string
       lastQuestion: string

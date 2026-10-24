@@ -1,9 +1,9 @@
 {
-  "name": "claude-notes",
+  "name": "perun-notes",
   "owner": { "name": "rafski", "url": "https://github.com/rafski" },
   "plugins": [
     {
-      "name": "notes",
+      "name": "perun-notes",
       "source": "./",
       "description": "A notes sidebar: write notes, pin a question or answer from the session, keep todos, search them"
     }
