@@ -5,10 +5,12 @@ A sidebar for Claude Code that keeps notes beside the chat, per project folder a
 - **Notes**: type in the sidebar's field, or `/note <text>`.
 - **Todos**: `/todo <text>`, switch the field to todo (`k`), or start a note with `todo:` or `[]`. Press a todo to tick it.
 - **Pins**: `a` pins Claude's last answer, `q` your last question (or `/pin`, `/pin q`).
-- Press a note or pin to expand it: send it to the prompt, turn it into a todo, or delete it (`u` undoes).
+- Press a note or pin to expand it: send it to the conversation as your message (`↗ send`), put it in the prompt box to edit first (`→ prompt`), turn it into a todo, or delete it (`u` undoes). Todos have their own `↗`, and `s` sends all open todos as one message.
 - Claude can add to it and read it when you ask ("add that to my todos", "what's on my list?").
 
 - **Search**: type in the Search field to filter every section (all words must match, any order); `c` clears it. `/notes <words>` opens the sidebar already searching.
+
+- **Perun** keeps watch at the top: a pixel-art thunder god with a silver head and golden moustache, as the old chronicle has his idol. He blinks now and then, and lightning flickers on his axe whenever you add, pin or send something. A new item glows for a moment, then settles. On a narrow pane he steps aside.
 
 `/notes` opens the sidebar.
 

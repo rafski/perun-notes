@@ -21,6 +21,8 @@ declare module 'claude-code' {
       expanded: string
       lastDeleted: Note[]
       query: string
+      strikes: number
+      fresh: string
     }
   }
 }

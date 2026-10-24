@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Note, NoteKind } from '../types'
+import { MASCOT_COLUMNS, mascotSvg } from './mascot-art'
 
 const PANE = 'notes'
 const TITLE = 'Notes'
@@ -14,6 +15,12 @@ const draftKind = atom({ plugin: 'notes', key: 'draftKind' } as const, 'note')
 const expanded = atom({ plugin: 'notes', key: 'expanded' } as const, '')
 const lastDeleted = atom({ plugin: 'notes', key: 'lastDeleted' } as const, [])
 const query = atom({ plugin: 'notes', key: 'query' } as const, '')
+// Bumped on every add, pin and send: Perun strikes his axe.
+const strikes = atom({ plugin: 'notes', key: 'strikes' } as const, 0)
+// The item just added, drawn lit for a moment.
+const fresh = atom({ plugin: 'notes', key: 'fresh' } as const, '')
+
+const FRESH_MS = 1600
 
 type $Of = EngineInterface
 
@@ -38,6 +45,9 @@ async function save($: $Of, fn: (list: Note[]) => Note[]) {
 async function add($: $Of, note: Note) {
   if (note.text === '') return
   await save($, list => [note, ...list])
+  await update($, strikes, n => n + 1)
+  await update($, fresh, () => note.id)
+  $.clock.after(FRESH_MS, () => void update($, fresh, id => (id === note.id ? '' : id)))
 }
 
 async function addTyped($: $Of, text: string, kind: 'note' | 'todo') {
@@ -68,6 +78,20 @@ async function undoDelete($: $Of) {
   await save($, list => [...back, ...list].sort((a, b) => b.at - a.at))
 }
 
+// What an item says when sent as the person's message: Claude's own words come back quoted.
+const asMessage = (n: Note) =>
+  n.kind === 'pin' && n.from !== 'you'
+    ? `From your earlier answer:\n\n${n.text.split('\n').map(l => `> ${l}`).join('\n')}`
+    : n.kind === 'todo'
+      ? `Todo: ${n.text}`
+      : n.text
+
+async function send($: $Of, text: string) {
+  await $.prompt.submit({ text, asUser: true })
+  await update($, strikes, n => n + 1)
+  $.ui.toast('Sent to the conversation.')
+}
+
 const clock = (at: number) => {
   const d = new Date(at)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
@@ -78,6 +102,32 @@ const matches = (n: Note, q: string) => {
   const words = q.toLowerCase().split(/\s+/).filter(w => w !== '')
   const text = n.text.toLowerCase()
   return words.every(w => text.includes(w))
+}
+
+// Word-wraps to whole rows, so a mark drawn at each row's start stays unbroken; blank lines
+// are kept, and a word longer than a row is split.
+const wrapRows = (text: string, width: number) => {
+  const rows: string[] = []
+  for (const para of text.replace(/\s+$/, '').split('\n')) {
+    let row = ''
+    for (const word of para.split(/\s+/).filter(w => w !== '')) {
+      let rest = word
+      while (rest.length > width) {
+        if (row !== '') rows.push(row)
+        rows.push(rest.slice(0, width))
+        rest = rest.slice(width)
+        row = ''
+      }
+      if (row === '') row = rest
+      else if (row.length + 1 + rest.length <= width) row += ' ' + rest
+      else {
+        rows.push(row)
+        row = rest
+      }
+    }
+    rows.push(row)
+  }
+  return rows
 }
 
 const oneLine = (text: string, width: number) => {
@@ -235,6 +285,8 @@ export const register: Register = on => {
     const kind = await read($, draftKind)
     const open = await read($, expanded)
     const deleted = await read($, lastDeleted)
+    const strikeCount = await read($, strikes)
+    const lit = await read($, fresh)
     const w = Math.max(24, e.props.bodyColumns ?? 40)
     // The pane pads one column on each side.
     const inner = w - 2
@@ -268,6 +320,9 @@ export const register: Register = on => {
 
     const actions = (n: Note) => (
       <Box key={`act-${n.id}`} columnGap={2} paddingLeft={2}>
+        <Button key={`send-${n.id}`} plain onPress={() => send($, asMessage(n))}>
+          <Text color={C.accent}>↗ send</Text>
+        </Button>
         <Button key={`use-${n.id}`} plain onPress={() => usePrompt(n.text)}>
           <Text color={C.accent}>→ prompt</Text>
         </Button>
@@ -285,12 +340,13 @@ export const register: Register = on => {
     // A pin reads as a quote: a bar down the left, the words, then who said it.
     const pinRow = (n: Note) => {
       const isOpen = open === n.id
-      const lines = isOpen ? n.text.split('\n') : [oneLine(n.text, inner)]
+      // The bar and its space take two columns of every row.
+      const lines = isOpen ? wrapRows(n.text, inner - 2) : [oneLine(n.text, inner - 2)]
       return (
         <Box key={n.id} flexDirection="column" marginBottom={1}>
           <Button key={`open-${n.id}`} plain onPress={() => toggleOpen(n.id)}>
-            <Text color={C.pin}>▍ </Text>
-            {lines[0] ?? ''}
+            <Text color={n.id === lit ? C.accent : C.pin}>▍ </Text>
+            <Text bold={n.id === lit}>{lines[0] ?? ''}</Text>
           </Button>
           {lines.slice(1).map(line => (
             <Text>
@@ -311,8 +367,8 @@ export const register: Register = on => {
         <Box key={n.id} flexDirection="column" marginBottom={isOpen ? 1 : 0}>
           <Box justifyContent="space-between">
             <Button key={`open-${n.id}`} plain onPress={() => toggleOpen(n.id)}>
-              <Text color={C.note}>{isOpen ? '▾ ' : '• '}</Text>
-              {isOpen ? '' : oneLine(n.text, inner - time.length - 1)}
+              <Text color={n.id === lit ? C.accent : C.note}>{isOpen ? '▾ ' : n.id === lit ? '✦ ' : '• '}</Text>
+              <Text bold={n.id === lit}>{isOpen ? '' : oneLine(n.text, inner - time.length - 1)}</Text>
             </Button>
             <Text color={C.faint}>{time}</Text>
           </Box>
@@ -326,17 +382,52 @@ export const register: Register = on => {
       )
     }
 
+    const openTodosMessage = `My open todos:\n${all
+      .filter(n => n.kind === 'todo' && !n.isDone)
+      .map(n => `- [ ] ${n.text}`)
+      .join('\n')}`
+
+    // Perun's word on the state of things.
+    const quip =
+      all.length === 0
+        ? 'Write, and I will keep it.'
+        : openCount === 0
+          ? 'All quiet in Prav.'
+          : openCount === 1
+            ? 'One todo left. Strike it.'
+            : `${openCount} todos. Strike them down.`
+
     // One dot per todo, filled when done; past eight it is just the figure.
     const dots = todos.length > 0 && todos.length <= 8 ? '●'.repeat(doneCount) + '○'.repeat(todos.length - doneCount) + ' ' : ''
 
     return (
       <Box flexDirection="column" width={w} paddingX={1}>
-        <Box justifyContent="space-between">
-          <Text color={C.accent} bold>
-            ✎ notes
-          </Text>
-          <Text dimColor>{`${openCount} open · ${pinCount} pinned`}</Text>
-        </Box>
+        {w >= MASCOT_COLUMNS + 20 ? (
+          <Box columnGap={2}>
+            {/* Only the terminal and desktop run a Client's frame clock. */}
+            {'Client' in els && (e.surface === 'terminal' || e.surface === 'desktop') ? (
+              <els.Client key="perun" module="./mascot.tsx" props={{ strikes: strikeCount }} />
+            ) : 'Svg' in els ? (
+              <els.Svg source={mascotSvg({ isBlinking: false, isStriking: false })} alt="Perun, the thunder god, holding his axe" />
+            ) : null}
+            <Box flexDirection="column" justifyContent="center" flexShrink={1}>
+              <Text color={C.accent} bold>
+                ✎ notes
+              </Text>
+              <Text dimColor>{`${openCount} open · ${pinCount} pinned`}</Text>
+              <Text color={C.faint} italic>
+                {quip}
+              </Text>
+            </Box>
+          </Box>
+        ) : (
+          <Box justifyContent="space-between">
+            <Text color={C.accent} bold>
+              ✎ notes
+            </Text>
+            <Text dimColor>{`${openCount} open · ${pinCount} pinned`}</Text>
+          </Box>
+        )}
 
         <Box flexDirection="column" marginTop={1}>
           {Input ? (
@@ -380,6 +471,11 @@ export const register: Register = on => {
             >
               <Text dimColor>{kind === 'todo' ? 'write notes' : 'write todos'}</Text>
             </Button>
+            {openCount > 0 && (
+              <Button key="send-todos" plain hotkey="s" onPress={() => send($, openTodosMessage)}>
+                <Text dimColor>send todos</Text>
+              </Button>
+            )}
             {deleted.length > 0 && (
               <Button key="undo" plain hotkey="u" onPress={() => undoDelete($)}>
                 <Text color={C.accent}>undo delete</Text>
@@ -403,14 +499,19 @@ export const register: Register = on => {
         {sortedTodos.map(n => (
           <Box key={n.id} justifyContent="space-between">
             <Button key={`done-${n.id}`} plain onPress={() => toggleDone(n.id)}>
-              <Text color={n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
-              <Text dimColor={n.isDone} strikethrough={n.isDone}>
-                {oneLine(n.text, inner - 6)}
+              <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
+              <Text dimColor={n.isDone} strikethrough={n.isDone} bold={n.id === lit}>
+                {oneLine(n.text, inner - 8)}
               </Text>
             </Button>
-            <Button key={`del-${n.id}`} plain onPress={() => remove($, n.id)}>
-              <Text color={C.faint}>×</Text>
-            </Button>
+            <Box columnGap={1}>
+              <Button key={`send-${n.id}`} plain onPress={() => send($, asMessage(n))}>
+                <Text color={C.faint}>↗</Text>
+              </Button>
+              <Button key={`del-${n.id}`} plain onPress={() => remove($, n.id)}>
+                <Text color={C.faint}>×</Text>
+              </Button>
+            </Box>
           </Box>
         ))}
 
