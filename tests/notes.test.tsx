@@ -46,12 +46,12 @@ test('notes, todos and pins show in the pane', async ($, on) => {
   await $.command.run({ command: 'pin', args: 'q' })
 
   const ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Text', text: /TODOS · 0\/2 done/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /NOTES · 2 OPEN · 2 PINNED/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^○○ 0\/2$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^2 open · 2 pinned$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /write tests/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /ship it/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /^claude $/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /^you $/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /— claude · / })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /— you · / })).toBeTruthy()
   await ui.unmount()
 })
 
@@ -75,11 +75,11 @@ test('search filters every section and /notes takes a query', async ($, on) => {
   expect(ran.text).toBe('2 notes match "relay".')
 
   const ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Text', text: /2 of 3 match/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /2 of 3 found/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /rotate relay key/ })).toBeTruthy()
   expect(await ui.find({ type: 'Button', text: /buy milk/ })).toBeFalsy()
   expect(await ui.find({ type: 'Button', text: /Relay keys/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /^PINNED$/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: /^pinned$/ })).toBeFalsy()
 
   await ui.press({ key: 'clear' })
   expect(await ui.find({ type: 'Button', text: /buy milk/ })).toBeTruthy()

@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderChildren } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 import type { Note, NoteKind } from '../types'
 
@@ -85,13 +85,13 @@ const oneLine = (text: string, width: number) => {
   return line.length > width ? line.slice(0, Math.max(1, width - 1)) + '…' : line
 }
 
-// Theme colour names, as flightdeck uses them: they follow the person's Claude Code theme.
+// Theme colour names, so the pane follows the person's Claude Code theme.
 const C = {
-  capture: 'claude',
+  accent: 'claude',
   todo: 'success',
-  pin: 'merged',
+  // Pins are highlighted passages, so they take the highlighter's amber.
+  pin: 'warning',
   note: 'suggestion',
-  dim: 'inactive',
   faint: 'subtle',
 }
 
@@ -236,8 +236,8 @@ export const register: Register = on => {
     const open = await read($, expanded)
     const deleted = await read($, lastDeleted)
     const w = Math.max(24, e.props.bodyColumns ?? 40)
-    // Inside a card: the border and one column of padding on each side.
-    const inner = w - 4
+    // The pane pads one column on each side.
+    const inner = w - 2
 
     const todos = list.filter(n => n.kind === 'todo')
     const pins = list.filter(n => n.kind === 'pin')
@@ -255,190 +255,176 @@ export const register: Register = on => {
     const toggleOpen = (id: string) => update($, expanded, cur => (cur === id ? '' : id))
     const usePrompt = (text: string) => $.prompt.fill({ text: text + '\n', mode: 'insert' })
 
-    const gauge = (part: number, of: number, cells: number) => {
-      const lit = of === 0 ? 0 : Math.round((part / of) * cells)
-      return { on: '▬'.repeat(lit), off: '▬'.repeat(cells - lit) }
-    }
-
-    const card = (key: string, color: string, title: string, sub: string, right: RenderChildren, body: RenderChildren) => (
-      <Box key={key} flexDirection="column" borderStyle="round" borderColor={color} paddingX={1} width={w}>
-        <Box justifyContent="space-between">
-          <Text color={color} bold wrap="truncate">
-            {title}
-            {sub ? <Text color={color}>{` · ${sub}`}</Text> : null}
-          </Text>
-          {right}
-        </Box>
-        {body}
+    // A ruled section heading: label, a faint rule to the edge, then a dim figure.
+    const rule = (label: string, color: string, right: string) => (
+      <Box key={`rule-${label}`} marginTop={1}>
+        <Text color={color} bold>
+          {label}
+        </Text>
+        <Text color={C.faint}>{' ' + '─'.repeat(Math.max(2, w - label.length - right.length - 2)) + ' '}</Text>
+        <Text dimColor>{right}</Text>
       </Box>
     )
 
-    const textRow = (n: Note, color: string) => {
-      const isOpen = open === n.id
-      const who = n.kind === 'pin' ? (n.from === 'you' ? 'you' : 'claude') : ''
-      const head = `${who ? who + ' ' : ''}${clock(n.at)} `
-      return (
-        <Box key={n.id} flexDirection="column" marginBottom={isOpen ? 1 : 0}>
-          <Button key={`open-${n.id}`} plain onPress={() => toggleOpen(n.id)}>
-            <Text color={color}>{isOpen ? '▾ ' : n.kind === 'pin' ? '◆ ' : '▸ '}</Text>
-            {who ? <Text color={color} bold>{who + ' '}</Text> : null}
-            <Text color={C.faint}>{clock(n.at) + ' '}</Text>
-            {isOpen ? '' : oneLine(n.text, Math.max(8, inner - head.length - 2))}
+    const actions = (n: Note) => (
+      <Box key={`act-${n.id}`} columnGap={2} paddingLeft={2}>
+        <Button key={`use-${n.id}`} plain onPress={() => usePrompt(n.text)}>
+          <Text color={C.accent}>→ prompt</Text>
+        </Button>
+        {n.kind !== 'todo' && (
+          <Button key={`todo-${n.id}`} plain onPress={() => toTodo(n.id)}>
+            <Text color={C.todo}>→ todo</Text>
           </Button>
-          {isOpen && <Text>{n.text}</Text>}
-          {isOpen && (
-            <Box columnGap={1}>
-              <Button key={`use-${n.id}`} label="to prompt" onPress={() => usePrompt(n.text)} />
-              <Button key={`todo-${n.id}`} label="todo" onPress={() => toTodo(n.id)} />
-              <Button key={`del-${n.id}`} label="delete" onPress={() => remove($, n.id)} />
-            </Box>
-          )}
+        )}
+        <Button key={`del-${n.id}`} plain onPress={() => remove($, n.id)}>
+          <Text color={C.faint}>delete</Text>
+        </Button>
+      </Box>
+    )
+
+    // A pin reads as a quote: a bar down the left, the words, then who said it.
+    const pinRow = (n: Note) => {
+      const isOpen = open === n.id
+      const lines = isOpen ? n.text.split('\n') : [oneLine(n.text, inner)]
+      return (
+        <Box key={n.id} flexDirection="column" marginBottom={1}>
+          <Button key={`open-${n.id}`} plain onPress={() => toggleOpen(n.id)}>
+            <Text color={C.pin}>▍ </Text>
+            {lines[0] ?? ''}
+          </Button>
+          {lines.slice(1).map(line => (
+            <Text>
+              <Text color={C.pin}>▍ </Text>
+              {line}
+            </Text>
+          ))}
+          <Text color={C.faint}>{`  — ${n.from === 'you' ? 'you' : 'claude'} · ${clock(n.at)}`}</Text>
+          {isOpen && actions(n)}
         </Box>
       )
     }
 
-    const tg = gauge(doneCount, todos.length, Math.min(10, Math.max(4, inner - 24)))
+    const noteRow = (n: Note) => {
+      const isOpen = open === n.id
+      const time = clock(n.at)
+      return (
+        <Box key={n.id} flexDirection="column" marginBottom={isOpen ? 1 : 0}>
+          <Box justifyContent="space-between">
+            <Button key={`open-${n.id}`} plain onPress={() => toggleOpen(n.id)}>
+              <Text color={C.note}>{isOpen ? '▾ ' : '• '}</Text>
+              {isOpen ? '' : oneLine(n.text, inner - time.length - 1)}
+            </Button>
+            <Text color={C.faint}>{time}</Text>
+          </Box>
+          {isOpen && (
+            <Box paddingLeft={2}>
+              <Text>{n.text}</Text>
+            </Box>
+          )}
+          {isOpen && actions(n)}
+        </Box>
+      )
+    }
+
+    // One dot per todo, filled when done; past eight it is just the figure.
+    const dots = todos.length > 0 && todos.length <= 8 ? '●'.repeat(doneCount) + '○'.repeat(todos.length - doneCount) + ' ' : ''
 
     return (
-      <Box flexDirection="column" width={w}>
-        <Box justifyContent="center">
-          <Text bold wrap="truncate">
-            <Text>NOTES</Text>
-            <Text color={C.dim}> · </Text>
-            <Text color={C.todo}>{String(openCount)}</Text>
-            <Text>{' OPEN'}</Text>
-            <Text color={C.dim}> · </Text>
-            <Text color={C.pin}>{String(pinCount)}</Text>
-            <Text>{' PINNED'}</Text>
+      <Box flexDirection="column" width={w} paddingX={1}>
+        <Box justifyContent="space-between">
+          <Text color={C.accent} bold>
+            ✎ notes
           </Text>
-        </Box>
-        <Box justifyContent="center" columnGap={2}>
-          <Text>
-            <Text color={C.todo}>■</Text>
-            <Text dimColor> todos</Text>
-          </Text>
-          <Text>
-            <Text color={C.pin}>■</Text>
-            <Text dimColor> pinned</Text>
-          </Text>
-          <Text>
-            <Text color={C.note}>■</Text>
-            <Text dimColor> notes</Text>
-          </Text>
+          <Text dimColor>{`${openCount} open · ${pinCount} pinned`}</Text>
         </Box>
 
-        {card(
-          'capture',
-          C.capture,
-          'CAPTURE',
-          kind,
-          <Text color={C.faint}>k switch</Text>,
-          <Box flexDirection="column">
-            <Box columnGap={1}>
-              <Button key="pin-a" hotkey="a" label="pin answer" onPress={() => pin($, 'a')} />
-              <Button key="pin-q" hotkey="q" label="pin question" onPress={() => pin($, 'q')} />
-            </Box>
-            <Box columnGap={1}>
-              <Button
-                key="kind"
-                hotkey="k"
-                label={kind === 'todo' ? 'adding todo' : 'adding note'}
-                onPress={() => update($, draftKind, k => (k === 'todo' ? 'note' : 'todo'))}
-              />
-              {deleted.length > 0 && (
-                <Button key="undo" hotkey="u" label="undo delete" onPress={() => undoDelete($)} />
-              )}
-            </Box>
-            {Input ? (
-              <Input
-                key="draft"
-                value=""
-                autoFocus
-                label={kind === 'todo' ? '○ ' : '▸ '}
-                placeholder={kind === 'todo' ? 'new todo…' : 'new note… (todo: makes a todo)'}
-                submitLabel="add"
-                onSubmit={value => addTyped($, value, kind)}
-              />
-            ) : (
-              <Text dimColor>add with /note or /todo</Text>
+        <Box flexDirection="column" marginTop={1}>
+          {Input ? (
+            <Input
+              key="draft"
+              value=""
+              autoFocus
+              label={kind === 'todo' ? '[ ] ' : '+ '}
+              placeholder={kind === 'todo' ? 'a todo…' : 'a note… (todo: makes a todo)'}
+              submitLabel="add"
+              onSubmit={value => addTyped($, value, kind)}
+            />
+          ) : (
+            <Text dimColor>add with /note or /todo</Text>
+          )}
+          {Input ? (
+            <Input
+              key="search"
+              label="⌕ "
+              value={q}
+              placeholder="find…"
+              submitLabel="done"
+              onInput={value => update($, query, () => value)}
+              onSubmit={value => update($, query, () => value)}
+            />
+          ) : isSearching ? (
+            <Text dimColor>find: {q}</Text>
+          ) : null}
+          <Box columnGap={2} flexWrap="wrap">
+            <Button key="pin-a" plain hotkey="a" onPress={() => pin($, 'a')}>
+              <Text dimColor>pin answer</Text>
+            </Button>
+            <Button key="pin-q" plain hotkey="q" onPress={() => pin($, 'q')}>
+              <Text dimColor>pin question</Text>
+            </Button>
+            <Button
+              key="kind"
+              plain
+              hotkey="k"
+              onPress={() => update($, draftKind, k => (k === 'todo' ? 'note' : 'todo'))}
+            >
+              <Text dimColor>{kind === 'todo' ? 'write notes' : 'write todos'}</Text>
+            </Button>
+            {deleted.length > 0 && (
+              <Button key="undo" plain hotkey="u" onPress={() => undoDelete($)}>
+                <Text color={C.accent}>undo delete</Text>
+              </Button>
             )}
-            {Input ? (
-              <Input
-                key="search"
-                label="⌕ "
-                value={q}
-                placeholder="search…"
-                submitLabel="done"
-                onInput={value => update($, query, () => value)}
-                onSubmit={value => update($, query, () => value)}
-              />
-            ) : isSearching ? (
-              <Text dimColor>search: {q}</Text>
-            ) : null}
-            {isSearching && (
-              <Box columnGap={1}>
-                <Text dimColor>{`${list.length} of ${all.length} match`}</Text>
-                <Button key="clear" hotkey="c" label="clear search" onPress={() => update($, query, () => '')} />
-              </Box>
-            )}
-          </Box>,
+          </Box>
+          {isSearching && (
+            <Box columnGap={2}>
+              <Text color={C.accent}>{`${list.length} of ${all.length} found`}</Text>
+              <Button key="clear" plain hotkey="c" onPress={() => update($, query, () => '')}>
+                <Text dimColor>clear</Text>
+              </Button>
+            </Box>
+          )}
+        </Box>
+
+        {(!isSearching || todos.length > 0) && rule('todo', C.todo, todos.length > 0 ? `${dots}${doneCount}/${todos.length}` : '')}
+        {(!isSearching || todos.length > 0) && todos.length === 0 && (
+          <Text color={C.faint}>nothing to do</Text>
         )}
-
-        {(!isSearching || todos.length > 0) &&
-          card(
-            'todos',
-            C.todo,
-            'TODOS',
-            todos.length > 0 ? `${doneCount}/${todos.length} done` : '',
-            todos.length > 0 ? (
-              <Text>
-                <Text color={C.todo}>{tg.on}</Text>
-                <Text color={C.faint}>{tg.off}</Text>
+        {sortedTodos.map(n => (
+          <Box key={n.id} justifyContent="space-between">
+            <Button key={`done-${n.id}`} plain onPress={() => toggleDone(n.id)}>
+              <Text color={n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
+              <Text dimColor={n.isDone} strikethrough={n.isDone}>
+                {oneLine(n.text, inner - 6)}
               </Text>
-            ) : null,
-            <Box flexDirection="column">
-              {todos.length === 0 && <Text color={C.faint}>nothing to do · /todo &lt;text&gt;</Text>}
-              {sortedTodos.map(n => (
-                <Box key={n.id} justifyContent="space-between">
-                  <Button key={`done-${n.id}`} plain onPress={() => toggleDone(n.id)}>
-                    <Text color={n.isDone ? C.dim : C.todo}>{n.isDone ? '✓ ' : '○ '}</Text>
-                    <Text dimColor={n.isDone} strikethrough={n.isDone}>
-                      {oneLine(n.text, inner - 5)}
-                    </Text>
-                  </Button>
-                  <Button key={`del-${n.id}`} plain onPress={() => remove($, n.id)}>
-                    <Text color={C.faint}>×</Text>
-                  </Button>
-                </Box>
-              ))}
-            </Box>,
-          )}
+            </Button>
+            <Button key={`del-${n.id}`} plain onPress={() => remove($, n.id)}>
+              <Text color={C.faint}>×</Text>
+            </Button>
+          </Box>
+        ))}
 
-        {(!isSearching || pins.length > 0) &&
-          card(
-            'pinned',
-            C.pin,
-            'PINNED',
-            '',
-            <Text dimColor>{String(pins.length)}</Text>,
-            <Box flexDirection="column">
-              {pins.length === 0 && <Text color={C.faint}>a pins an answer · q a question</Text>}
-              {pins.map(n => textRow(n, C.pin))}
-            </Box>,
-          )}
+        {(!isSearching || pins.length > 0) && rule('pinned', C.pin, pins.length > 0 ? String(pins.length) : '')}
+        {(!isSearching || pins.length > 0) && pins.length === 0 && (
+          <Text color={C.faint}>a pins my last answer, q your question</Text>
+        )}
+        {pins.map(pinRow)}
 
-        {(!isSearching || plain.length > 0) &&
-          card(
-            'notes',
-            C.note,
-            'NOTES',
-            '',
-            <Text dimColor>{String(plain.length)}</Text>,
-            <Box flexDirection="column">
-              {plain.length === 0 && <Text color={C.faint}>none yet · /note &lt;text&gt;</Text>}
-              {plain.map(n => textRow(n, C.note))}
-            </Box>,
-          )}
+        {(!isSearching || plain.length > 0) && rule('notes', C.note, plain.length > 0 ? String(plain.length) : '')}
+        {(!isSearching || plain.length > 0) && plain.length === 0 && (
+          <Text color={C.faint}>nothing written yet</Text>
+        )}
+        {plain.map(noteRow)}
       </Box>
     )
   })
