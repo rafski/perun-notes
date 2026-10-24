@@ -10,7 +10,7 @@ A sidebar for Claude Code that keeps notes beside the chat, per project folder a
 
 - **Search**: type in the Search field to filter every section (all words must match, any order); `c` clears it. `/notes <words>` opens the sidebar already searching.
 
-- **Perun** keeps watch at the top: a pixel-art thunder god with a silver head and golden moustache, as the old chronicle has his idol. He blinks now and then, and lightning flickers on his axe whenever you add, pin or send something. A new item glows for a moment, then settles. On a narrow pane he steps aside.
+- **Perun** keeps watch at the top: a pixel-art thunder god with a silver head and golden moustache, as the old chronicle has his idol. He blinks now and then, and lightning flickers on his axe whenever you add, pin or send something. A new item glows for a moment, then settles. A deleted one is struck by lightning (a bolt, a crackle, embers) before it goes. On a narrow pane he steps aside.
 
 `/notes` opens the sidebar.
 

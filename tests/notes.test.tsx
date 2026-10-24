@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 const PANE = {
   plugin: 'notes',
@@ -193,5 +193,60 @@ test('without a Client the mascot is drawn still', async ($, on) => {
   expect(await ui.find({ type: 'Client' })).toBeFalsy()
   expect((await ui.find({ type: 'Svg' }))?.props.alt).toMatch(/Perun/)
   expect(await ui.find({ type: 'Text', text: /Write, and I will keep it\./ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('a deleted item is struck by lightning, then gone', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'todo', args: 'old chore' })
+  const ui = await $.ui.mount(PANE)
+  const del = (await ui.findAll({ type: 'Button' })).find(b => /^del-/.test(b.key ?? ''))
+  await ui.press({ key: del?.key ?? '' })
+
+  expect(await ui.find({ type: 'Text', text: /^↯ old chore$/ })).toBeTruthy()
+  await clock.advance(140)
+  expect(await ui.find({ type: 'Text', text: /^╲╱/ })).toBeTruthy()
+  await clock.advance(140)
+  expect(await ui.find({ type: 'Text', text: /˙/ })).toBeTruthy()
+  await clock.advance(200)
+  expect(await ui.find({ type: 'Text', text: /old chore|╲╱|˙/ })).toBeFalsy()
+  expect(await ui.find({ key: 'undo' })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('ticking a todo sparks in its box; unticking does not', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'todo', args: 'tick me' })
+  const ui = await $.ui.mount(PANE)
+  const box = (await ui.findAll({ type: 'Button' })).find(b => /^done-/.test(b.key ?? ''))
+  const key = box?.key ?? ''
+  const mark = async () => (await ui.find({ type: 'Text', text: /^\[.\] $/ }))?.props.color
+
+  await ui.press({ key })
+  expect(await ui.find({ type: 'Text', text: /^\[↯\] $/ })).toBeTruthy()
+  await clock.advance(120)
+  expect(await mark()).toBe('#ffe45c')
+  await clock.advance(160)
+  // The spark is over; past the new-item glow too, it rests as a done todo.
+  expect(await mark()).not.toBe('#ffe45c')
+  await clock.advance(1600)
+  expect(await mark()).toBe('subtle')
+
+  await ui.press({ key })
+  expect(await ui.find({ type: 'Text', text: /^\[↯\] $/ })).toBeFalsy()
   await ui.unmount()
 })

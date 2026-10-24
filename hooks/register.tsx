@@ -22,6 +22,17 @@ const fresh = atom({ plugin: 'notes', key: 'fresh' } as const, '')
 
 const FRESH_MS = 1600
 
+// A deleted item is struck by lightning before it goes: the bolt, the crackle, the embers.
+const zap = atom({ plugin: 'notes', key: 'zap' } as const, { id: '', frame: 0 })
+const ZAP_FRAMES_MS = [0, 140, 280]
+const ZAP_DONE_MS = 440
+const LIGHTNING = '#ffe45c'
+
+// A ticked todo gets a small spark in its box: a bolt, then a bright tick, then rest.
+const spark = atom({ plugin: 'notes', key: 'spark' } as const, { id: '', frame: 0 })
+const SPARK_STEP_MS = 120
+const SPARK_DONE_MS = 280
+
 type $Of = EngineInterface
 
 // Notes are kept per project folder, across sessions.
@@ -67,9 +78,20 @@ async function pin($: $Of, which: 'q' | 'a') {
 }
 
 async function remove($: $Of, id: string) {
+  if ((await read($, zap)).id === id) return
+  await update($, strikes, n => n + 1)
+  await update($, zap, () => ({ id, frame: 0 }))
+  ZAP_FRAMES_MS.slice(1).forEach((ms, i) =>
+    $.clock.after(ms, () => void update($, zap, z => (z.id === id ? { id, frame: i + 1 } : z))),
+  )
+  $.clock.after(ZAP_DONE_MS, () => void removeNow($, id))
+}
+
+async function removeNow($: $Of, id: string) {
   const gone = (await read($, notes)).filter(n => n.id === id)
   await update($, lastDeleted, () => gone)
   await save($, list => list.filter(n => n.id !== id))
+  await update($, zap, z => (z.id === id ? { id: '', frame: 0 } : z))
 }
 
 async function undoDelete($: $Of) {
@@ -287,6 +309,8 @@ export const register: Register = on => {
     const deleted = await read($, lastDeleted)
     const strikeCount = await read($, strikes)
     const lit = await read($, fresh)
+    const struck = await read($, zap)
+    const sparked = await read($, spark)
     const w = Math.max(24, e.props.bodyColumns ?? 40)
     // The pane pads one column on each side.
     const inner = w - 2
@@ -300,8 +324,14 @@ export const register: Register = on => {
     // Open todos first, done ones after, each newest first.
     const sortedTodos = [...todos.filter(n => !n.isDone), ...todos.filter(n => n.isDone)]
 
-    const toggleDone = (id: string) =>
-      save($, l => l.map(n => (n.id === id ? { ...n, isDone: !n.isDone } : n)))
+    const toggleDone = async (id: string) => {
+      const isTicking = all.some(n => n.id === id && !n.isDone)
+      await save($, l => l.map(n => (n.id === id ? { ...n, isDone: !n.isDone } : n)))
+      if (!isTicking) return
+      await update($, spark, () => ({ id, frame: 0 }))
+      $.clock.after(SPARK_STEP_MS, () => void update($, spark, s => (s.id === id ? { id, frame: 1 } : s)))
+      $.clock.after(SPARK_DONE_MS, () => void update($, spark, s => (s.id === id ? { id: '', frame: 0 } : s)))
+    }
     const toTodo = (id: string) =>
       save($, l => l.map(n => (n.id === id ? { ...n, kind: 'todo' as const, isDone: false } : n)))
     const toggleOpen = (id: string) => update($, expanded, cur => (cur === id ? '' : id))
@@ -317,6 +347,22 @@ export const register: Register = on => {
         <Text dimColor>{right}</Text>
       </Box>
     )
+
+    // A row being struck: the bolt lands on it, crackles across, and leaves embers.
+    const zapRow = (n: Note) => {
+      const room = Math.max(4, inner)
+      const frame =
+        struck.frame === 0 ? (
+          <Text color={LIGHTNING} bold>
+            {'↯ ' + oneLine(n.text, room - 2)}
+          </Text>
+        ) : struck.frame === 1 ? (
+          <Text color={LIGHTNING}>{'╲╱'.repeat(Math.ceil(room / 2)).slice(0, room)}</Text>
+        ) : (
+          <Text color={C.faint}>{' · ˙'.repeat(Math.ceil(room / 4)).slice(0, room)}</Text>
+        )
+      return <Box key={n.id}>{frame}</Box>
+    }
 
     const actions = (n: Note) => (
       <Box key={`act-${n.id}`} columnGap={2} paddingLeft={2}>
@@ -339,6 +385,7 @@ export const register: Register = on => {
 
     // A pin reads as a quote: a bar down the left, the words, then who said it.
     const pinRow = (n: Note) => {
+      if (struck.id === n.id) return zapRow(n)
       const isOpen = open === n.id
       // The bar and its space take two columns of every row.
       const lines = isOpen ? wrapRows(n.text, inner - 2) : [oneLine(n.text, inner - 2)]
@@ -361,6 +408,7 @@ export const register: Register = on => {
     }
 
     const noteRow = (n: Note) => {
+      if (struck.id === n.id) return zapRow(n)
       const isOpen = open === n.id
       const time = clock(n.at)
       return (
@@ -496,10 +544,16 @@ export const register: Register = on => {
         {(!isSearching || todos.length > 0) && todos.length === 0 && (
           <Text color={C.faint}>nothing to do</Text>
         )}
-        {sortedTodos.map(n => (
+        {sortedTodos.map(n => struck.id === n.id ? zapRow(n) : (
           <Box key={n.id} justifyContent="space-between">
             <Button key={`done-${n.id}`} plain onPress={() => toggleDone(n.id)}>
-              <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
+              {sparked.id === n.id ? (
+                <Text color={LIGHTNING} bold>
+                  {sparked.frame === 0 ? '[↯] ' : '[✓] '}
+                </Text>
+              ) : (
+                <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
+              )}
               <Text dimColor={n.isDone} strikethrough={n.isDone} bold={n.id === lit}>
                 {oneLine(n.text, inner - 8)}
               </Text>

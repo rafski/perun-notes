@@ -23,6 +23,10 @@ declare module 'claude-code' {
       query: string
       strikes: number
       fresh: string
+      // The item being struck away, and which frame of the strike it is on.
+      zap: { id: string; frame: number }
+      // The todo just ticked, and which frame of its spark it is on.
+      spark: { id: string; frame: number }
     }
   }
 }
