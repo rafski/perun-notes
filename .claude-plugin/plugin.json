@@ -1,0 +1,7 @@
+{
+  "name": "notes",
+  "version": "0.1.0",
+  "description": "A notes sidebar: write notes, pin a question or answer from the session, keep todos",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
