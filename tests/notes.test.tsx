@@ -292,3 +292,24 @@ test('auto-open can be turned off', async ($, on) => {
   await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
   expect(opened).toEqual([])
 })
+
+test('Perun idles: over half a minute he does several different things', async ($, on) => {
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+  const looks = new Set<string>()
+  for (let i = 0; i < 300; i++) {
+    await ui.advance(100)
+    const cells = await ui.findAll({ type: 'Text', in: 'perun' })
+    looks.add(JSON.stringify(cells.map(c => [c.text, c.props.color, c.props.backgroundColor])))
+  }
+  // Rest, blinks, the greeting strike, and at least a few idle moves.
+  expect(looks.size).toBeGreaterThan(5)
+  await ui.unmount()
+})

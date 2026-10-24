@@ -10,7 +10,7 @@ A sidebar for Claude Code that keeps notes beside the chat, per project folder a
 
 - **Search**: type in the Search field to filter every section (all words must match, any order); `c` clears it. `/notes <words>` opens the sidebar already searching.
 
-- **Perun** keeps watch at the top: a pixel-art thunder god with a silver head and golden moustache, as the old chronicle has his idol. He blinks now and then, and lightning flickers on his axe whenever you add, pin or send something. A new item glows for a moment, then settles. A deleted one is struck by lightning (a bolt, a crackle, embers) before it goes. On a narrow pane he steps aside.
+- **Perun** keeps watch at the top: a pixel-art thunder god with a silver head and golden moustache, as the old chronicle has his idol. He blinks now and then, and every few seconds does something small: a glance aside, a glint on his axe, wind in his beard or cloak, thunder far off. Lightning flickers on his axe whenever you add, pin or send something. A new item glows for a moment, then settles. A deleted one is struck by lightning (a bolt, a crackle, embers) before it goes. On a narrow pane he steps aside.
 
 `/notes` opens the sidebar, `/notes close` closes it. It shares the dock with other mods' panes as a tab: it opens by itself once per session (never again after you close it, and a reload leaves it where it is in the tabs). `/notes auto off` makes it wait for `/notes` instead; `/notes auto on` turns that back.
 
