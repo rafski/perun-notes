@@ -27,6 +27,8 @@ declare module 'claude-code' {
       zap: { id: string; frame: number }
       // The todo just ticked, and which frame of its spark it is on.
       spark: { id: string; frame: number }
+      // The person closed the pane this session: it is not opened again unasked.
+      wasClosed: boolean
     }
   }
 }

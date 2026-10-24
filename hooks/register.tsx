@@ -33,6 +33,10 @@ const spark = atom({ plugin: 'notes', key: 'spark' } as const, { id: '', frame: 
 const SPARK_STEP_MS = 120
 const SPARK_DONE_MS = 280
 
+const wasClosed = atom({ plugin: 'notes', key: 'wasClosed' } as const, false)
+// Whether the pane opens by itself at the start of a session; off, it waits for /notes.
+const AUTO_OPEN_KEY = 'autoOpen'
+
 type $Of = EngineInterface
 
 // Notes are kept per project folder, across sessions.
@@ -178,8 +182,8 @@ export const register: Register = on => {
 
     await $.command.register({
       name: 'notes',
-      description: 'Open the notes sidebar, optionally searching it',
-      argumentHint: '[search]',
+      description: 'Open the notes sidebar, optionally searching it; close it; or set auto-open',
+      argumentHint: '[search] | close | auto on|off',
     })
     await $.command.register({
       name: 'note',
@@ -222,7 +226,13 @@ export const register: Register = on => {
       isDeferred: false,
     })
 
-    if (e.isInteractive) void $.ui.open({ id: PANE, title: TITLE })
+    // Share the dock with other mods' panes: open unasked only once, never over a pane the
+    // person closed, and not again on a reload (that would bring it to the front).
+    const isAuto = (await $.store.get(AUTO_OPEN_KEY)) !== false
+    const isOpen = (await $.ui.panes()).some(p => p.id === PANE)
+    if (e.isInteractive && isAuto && !isOpen && !(await read($, wasClosed))) {
+      void $.ui.open({ id: PANE, title: TITLE })
+    }
 
     return next(e)
   })
@@ -242,7 +252,26 @@ export const register: Register = on => {
     return next(e)
   })
 
+  on('ui.close', { id: PANE }, async ($, e, next) => {
+    if (e.origin.kind === 'person') await update($, wasClosed, () => true)
+    return next(e)
+  })
+
   on('command.run', { command: 'notes' }, async ($, e) => {
+    const auto = /^\s*auto\s+(on|off)\s*$/i.exec(e.args)
+    if (auto) {
+      const isOn = auto[1]?.toLowerCase() === 'on'
+      await $.store.set(AUTO_OPEN_KEY, isOn)
+      return {
+        text: isOn
+          ? 'Notes will open by itself in new sessions.'
+          : 'Notes will wait for /notes in new sessions; it stays a tab beside other panes once open.',
+      }
+    }
+    if (/^\s*close\s*$/i.test(e.args)) {
+      await $.ui.close({ id: PANE })
+      return { text: 'Notes closed.' }
+    }
     const q = e.args.trim()
     await update($, query, () => q)
     await $.ui.open({ id: PANE, title: TITLE, focus: true })

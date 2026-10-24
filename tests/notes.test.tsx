@@ -250,3 +250,45 @@ test('ticking a todo sparks in its box; unticking does not', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /^\[↯\] $/ })).toBeFalsy()
   await ui.unmount()
 })
+
+test('the pane shares the dock: it opens unasked once, not again on a reload', async ($, on) => {
+  mock.store(on)
+  const opened: string[] = []
+  let isOpen = false
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', (_, e) => {
+    opened.push(e.id)
+    isOpen = true
+    return { value: { isPlaced: true } }
+  })
+  on('ui.panes', () => ({
+    value: isOpen ? [{ id: 'notes', title: 'Notes', isShown: false, isFocused: false, isPlaced: true }] : [],
+  }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  const start = () => $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  await start()
+  expect(opened).toEqual(['notes'])
+
+  // A reload runs session.start again: the open pane is left where it is in the tabs.
+  await start()
+  expect(opened).toEqual(['notes'])
+})
+
+test('auto-open can be turned off', async ($, on) => {
+  mock.store(on)
+  const opened: string[] = []
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', (_, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.panes', () => ({ value: [] }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.command.run({ command: 'notes', args: 'auto off' })
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  expect(opened).toEqual([])
+})
