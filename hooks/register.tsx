@@ -7,7 +7,7 @@ import { MASCOT_COLUMNS, mascotSvg } from './mascot-art'
 const PANE = 'notes'
 const TITLE = 'Perun Notes'
 // Keep in step with .claude-plugin/plugin.json; the engine does not hand a plugin its version.
-const VERSION = '0.1.7'
+const VERSION = '0.1.8'
 
 const notes = atom({ plugin: 'perun-notes', key: 'notes' } as const, [])
 const project = atom({ plugin: 'perun-notes', key: 'project' } as const, '')
@@ -210,6 +210,76 @@ const wrapRows = (text: string, width: number) => {
     rows.push(row)
   }
   return rows
+}
+
+// A markdown table's cells, or undefined when the line is not a table row.
+const tableCells = (line: string) => {
+  const t = line.trim()
+  if (!t.startsWith('|') || t.length < 2) return undefined
+  return t
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map(c => c.trim().replace(/\*\*|`/g, ''))
+}
+const isDivider = (cells: string[] | undefined) => cells !== undefined && cells.every(c => /^:?-{1,}:?$/.test(c))
+
+// A table drawn in box lines, its columns shrunk (cells cut with …) to fit the width.
+const drawTable = (rows: string[][], aligns: string[], width: number) => {
+  const cols = Math.max(...rows.map(r => r.length))
+  const widths = Array.from({ length: cols }, (_, i) => Math.max(1, ...rows.map(r => (r[i] ?? '').length)))
+  const total = () => widths.reduce((a, b) => a + b, 0) + 3 * cols + 1
+  while (total() > width) {
+    const widest = widths.indexOf(Math.max(...widths))
+    if (widths[widest]! <= 3) break
+    widths[widest]!--
+  }
+  const fit = (c: string, w: number) => (c.length > w ? c.slice(0, Math.max(1, w - 1)) + '…' : c)
+  const cell = (c: string, i: number) => {
+    const t = fit(c, widths[i]!)
+    const pad = widths[i]! - t.length
+    if (aligns[i] === 'right') return ' '.repeat(pad) + t
+    if (aligns[i] === 'center') return ' '.repeat(pad >> 1) + t + ' '.repeat(pad - (pad >> 1))
+    return t + ' '.repeat(pad)
+  }
+  const line = (l: string, m: string, r: string) => l + widths.map(w => '─'.repeat(w + 2)).join(m) + r
+  const out = [line('┌', '┬', '┐')]
+  rows.forEach((r, ri) => {
+    out.push('│ ' + widths.map((_, i) => cell(r[i] ?? '', i)).join(' │ ') + ' │')
+    if (ri === 0) out.push(line('├', '┼', '┤'))
+  })
+  out.push(line('└', '┴', '┘'))
+  return out
+}
+
+// Wrapped rows, with any markdown table in the text drawn as an aligned grid.
+const layoutRows = (text: string, width: number) => {
+  const lines = text.split('\n')
+  const out: string[] = []
+  let prose: string[] = []
+  const flush = () => {
+    if (prose.length > 0) out.push(...wrapRows(prose.join('\n'), width))
+    prose = []
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const head = tableCells(lines[i]!)
+    const divider = i + 1 < lines.length ? tableCells(lines[i + 1]!) : undefined
+    if (head && isDivider(divider)) {
+      flush()
+      const aligns = divider!.map(c => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : 'left'))
+      const rows = [head]
+      i += 2
+      for (; i < lines.length; i++) {
+        const cells = tableCells(lines[i]!)
+        if (!cells) break
+        rows.push(cells)
+      }
+      i--
+      out.push(...drawTable(rows, aligns, width))
+    } else prose.push(lines[i]!)
+  }
+  flush()
+  return out
 }
 
 // How many rows a text takes wrapped to a width, each typed line at least one.
@@ -543,7 +613,7 @@ export const register: Register = on => {
       if (depth !== undefined) return underRow(n, depth)
       const isOpen = open === n.id
       // The bar and its space take two columns of every row.
-      const lines = isOpen ? wrapRows(n.text, inner - 2) : [oneLine(n.text, inner - 2)]
+      const lines = isOpen ? layoutRows(n.text, inner - 2) : [oneLine(n.text, inner - 2)]
       const isDropping = dropping.id === n.id
       return (
         <Box key={n.id} flexDirection="column" marginBottom={1}>
@@ -570,7 +640,7 @@ export const register: Register = on => {
       const depth = depthOf(n.id)
       if (depth !== undefined) return underRow(n, depth)
       const isOpen = open === n.id
-      const lines = isOpen ? wrapRows(n.text, inner - 2) : [oneLine(n.text, inner - 2)]
+      const lines = isOpen ? layoutRows(n.text, inner - 2) : [oneLine(n.text, inner - 2)]
       const bar = <Text color={n.id === lit ? C.accent : C.note}>▍ </Text>
       return (
         <Box key={n.id} flexDirection="column" marginBottom={1}>

@@ -586,3 +586,34 @@ test('a todo opens like a note: send, prompt, to a note, delete; its box still t
   expect(await ui.find({ type: 'Button', text: /^▍ water the oak$/ })).toBeTruthy()
   await ui.unmount()
 })
+
+test('a table in a pin or note is drawn as an aligned grid once opened', async ($, on) => {
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  const answer = 'Compare:\n\n| Name | Count |\n|------|------:|\n| apples | 3 |\n| a very long pear name indeed | 12 |\n\nDone.'
+  await $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+  await $.command.run({ command: 'pin', args: '' })
+
+  const ui = await $.ui.mount(PANE)
+  const opener = (await ui.findAll({ type: 'Button' })).find(b => /^open-/.test(b.key ?? ''))
+  await ui.press({ key: opener?.key ?? '' })
+
+  const rows = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '').filter(t => t.startsWith('▍ '))
+  const grid = rows.filter(r => /[┌│├└]/.test(r[2] ?? ''))
+  expect(grid.length).toBe(6)
+  // Every grid row is the same width and fits the pane.
+  for (const row of grid) {
+    expect(row.length).toBe(grid[0]!.length)
+    expect(row.length).toBeLessThanOrEqual(38)
+  }
+  expect(grid.some(r => r.includes('…'))).toBe(true)
+  expect(rows.some(r => r.includes('|'))).toBe(false)
+  await ui.unmount()
+})
