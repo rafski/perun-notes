@@ -7,7 +7,7 @@ import { MASCOT_COLUMNS, mascotSvg } from './mascot-art'
 const PANE = 'notes'
 const TITLE = 'Perun Notes'
 // Keep in step with .claude-plugin/plugin.json; the engine does not hand a plugin its version.
-const VERSION = '0.1.4'
+const VERSION = '0.1.5'
 
 const notes = atom({ plugin: 'perun-notes', key: 'notes' } as const, [])
 const project = atom({ plugin: 'perun-notes', key: 'project' } as const, '')
@@ -713,27 +713,39 @@ export const register: Register = on => {
         {sortedTodos.map(n => {
           const depth = depthOf(n.id)
           if (depth !== undefined) return underRow(n, depth)
-          // The whole todo shows, wrapped; while it is being carved, only its first row.
-          const room = inner - 8
+          // Drawn like a pin: a bar down the left of every row, then when it was added. The whole
+          // todo shows, wrapped; while it is being carved, only its first row.
+          const room = inner - 6
           const lines = wrapRows(n.text, room)
           const more = carving.id === n.id ? [] : lines.slice(1)
+          const bar = <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>▍ </Text>
           return (
-            <Box key={n.id} flexDirection="column">
+            <Box key={n.id} flexDirection="column" marginBottom={1}>
+              <Button key={`done-${n.id}`} plain onPress={() => toggleDone($, n.id)}>
+                {bar}
+                {sparked.id === n.id ? (
+                  // The serpent in the box, struck, then the rain.
+                  <Text color={[C.pin, LIGHTNING, RAIN][sparked.frame] ?? C.todo} bold>
+                    {['[∽] ', '[↯] ', '[╵] '][sparked.frame] ?? '[✓] '}
+                  </Text>
+                ) : carving.id === n.id ? (
+                  // Perun's thunder mark, cut into the new todo's box.
+                  <Text color={LIGHTNING}>{'[✲] '}</Text>
+                ) : (
+                  <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
+                )}
+                {rowText(n, room, n.id === lit, n.isDone, lines[0] ?? '')}
+              </Button>
+              {more.map(line => (
+                <Text>
+                  {bar}
+                  <Text dimColor={n.isDone} strikethrough={n.isDone} bold={n.id === lit}>
+                    {'    ' + line}
+                  </Text>
+                </Text>
+              ))}
               <Box justifyContent="space-between">
-                <Button key={`done-${n.id}`} plain onPress={() => toggleDone($, n.id)}>
-                  {sparked.id === n.id ? (
-                    // The serpent in the box, struck, then the rain.
-                    <Text color={[C.pin, LIGHTNING, RAIN][sparked.frame] ?? C.todo} bold>
-                      {['[∽] ', '[↯] ', '[╵] '][sparked.frame] ?? '[✓] '}
-                    </Text>
-                  ) : carving.id === n.id ? (
-                    // Perun's thunder mark, cut into the new todo's box.
-                    <Text color={LIGHTNING}>{'[✲] '}</Text>
-                  ) : (
-                    <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
-                  )}
-                  {rowText(n, room, n.id === lit, n.isDone, lines[0] ?? '')}
-                </Button>
+                <Text color={C.faint}>{`  — ${n.isDone ? 'done' : 'added'} · ${clock(n.at)}`}</Text>
                 <Box columnGap={1}>
                   <Button key={`send-${n.id}`} plain onPress={() => send($, asMessage(n), n.id)}>
                     <Text color={C.faint}>↗</Text>
@@ -743,13 +755,6 @@ export const register: Register = on => {
                   </Button>
                 </Box>
               </Box>
-              {more.map((line, i) => (
-                <Box key={`more-${n.id}-${i}`} paddingLeft={4}>
-                  <Text dimColor={n.isDone} strikethrough={n.isDone} bold={n.id === lit}>
-                    {line}
-                  </Text>
-                </Box>
-              ))}
             </Box>
           )
         })}

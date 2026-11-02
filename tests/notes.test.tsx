@@ -325,8 +325,8 @@ test('ticking a todo: the serpent is struck, rain falls, then the tick', async (
   const ui = await $.ui.mount(PANE)
   const keyOf = async (text: RegExp) => (await ui.find({ type: 'Button', text }))?.key ?? ''
   const key = await keyOf(/tick me/)
-  // The row's button reads its box first, then its text.
-  const box = async () => ({ text: (await ui.find({ key }))?.text.slice(0, 4) })
+  // The row's button reads its bar, its box, then its text.
+  const box = async () => ({ text: (await ui.find({ key }))?.text.slice(2, 6) })
 
   await ui.press({ key })
   expect((await box())?.text).toBe('[∽] ')
@@ -497,7 +497,7 @@ test('the version shows at the bottom right', async ($, on) => {
   await ui.unmount()
 })
 
-test('a long todo wraps to show all of it', async ($, on) => {
+test('a long todo wraps to show all of it, barred like a pin', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
   on('command.register', () => ({ value: { command: 'x' } }))
@@ -514,9 +514,10 @@ test('a long todo wraps to show all of it', async ($, on) => {
   const shown = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   expect(shown.some(t => t.includes('…'))).toBe(false)
   for (const word of ['rotate', 'pins', 'friday']) expect(shown.some(t => t.includes(word))).toBe(true)
-  // 40 wide, less padding, box and the two buttons: 30 a row.
-  const rows = shown.filter(t => t.length > 0 && long.includes(t.trim()) && t.trim().length > 3)
-  expect(rows.length).toBeGreaterThan(2)
-  for (const row of rows) expect(row.length).toBeLessThanOrEqual(30)
+  // Like a pin: the bar on every row, within the 38 columns inside the padding.
+  const rows = shown.filter(t => t.startsWith('▍ '))
+  expect(rows.length).toBeGreaterThan(1)
+  for (const row of rows) expect(row.length).toBeLessThanOrEqual(38)
+  expect(await ui.find({ type: 'Text', text: /^  — added · \d\d:\d\d$/ })).toBeTruthy()
   await ui.unmount()
 })
