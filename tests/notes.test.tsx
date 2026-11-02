@@ -607,13 +607,16 @@ test('a table in a pin or note is drawn as an aligned grid once opened', async (
 
   const rows = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '').filter(t => t.startsWith('▍ '))
   const grid = rows.filter(r => /[┌│├└]/.test(r[2] ?? ''))
-  expect(grid.length).toBe(6)
+  // Long cells wrap rather than being cut, so there are more than the six unwrapped rows.
+  expect(grid.length).toBeGreaterThan(6)
   // Every grid row is the same width and fits the pane.
   for (const row of grid) {
     expect(row.length).toBe(grid[0]!.length)
     expect(row.length).toBeLessThanOrEqual(38)
   }
-  expect(grid.some(r => r.includes('…'))).toBe(true)
+  expect(grid.some(r => r.includes('…'))).toBe(false)
+  const flat = grid.join(' ')
+  for (const word of ['apples', 'pear', 'indeed']) expect(flat.includes(word)).toBe(true)
   expect(rows.some(r => r.includes('|'))).toBe(false)
   await ui.unmount()
 })

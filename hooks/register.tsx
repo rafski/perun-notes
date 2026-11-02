@@ -7,7 +7,7 @@ import { MASCOT_COLUMNS, mascotSvg } from './mascot-art'
 const PANE = 'notes'
 const TITLE = 'Perun Notes'
 // Keep in step with .claude-plugin/plugin.json; the engine does not hand a plugin its version.
-const VERSION = '0.1.8'
+const VERSION = '0.1.9'
 
 const notes = atom({ plugin: 'perun-notes', key: 'notes' } as const, [])
 const project = atom({ plugin: 'perun-notes', key: 'project' } as const, '')
@@ -224,7 +224,8 @@ const tableCells = (line: string) => {
 }
 const isDivider = (cells: string[] | undefined) => cells !== undefined && cells.every(c => /^:?-{1,}:?$/.test(c))
 
-// A table drawn in box lines, its columns shrunk (cells cut with …) to fit the width.
+// A table drawn in box lines; columns shrink to fit the width and long cells wrap over
+// several lines, so nothing is cut. Rows are ruled apart once any cell wraps.
 const drawTable = (rows: string[][], aligns: string[], width: number) => {
   const cols = Math.max(...rows.map(r => r.length))
   const widths = Array.from({ length: cols }, (_, i) => Math.max(1, ...rows.map(r => (r[i] ?? '').length)))
@@ -234,19 +235,20 @@ const drawTable = (rows: string[][], aligns: string[], width: number) => {
     if (widths[widest]! <= 3) break
     widths[widest]!--
   }
-  const fit = (c: string, w: number) => (c.length > w ? c.slice(0, Math.max(1, w - 1)) + '…' : c)
-  const cell = (c: string, i: number) => {
-    const t = fit(c, widths[i]!)
-    const pad = widths[i]! - t.length
-    if (aligns[i] === 'right') return ' '.repeat(pad) + t
-    if (aligns[i] === 'center') return ' '.repeat(pad >> 1) + t + ' '.repeat(pad - (pad >> 1))
-    return t + ' '.repeat(pad)
+  const pad = (t: string, i: number) => {
+    const gap = widths[i]! - t.length
+    if (aligns[i] === 'right') return ' '.repeat(gap) + t
+    if (aligns[i] === 'center') return ' '.repeat(gap >> 1) + t + ' '.repeat(gap - (gap >> 1))
+    return t + ' '.repeat(gap)
   }
+  const wrapped = rows.map(r => widths.map((w, i) => wrapRows(r[i] ?? '', w)))
+  const isTall = wrapped.some(r => r.some(c => c.length > 1))
   const line = (l: string, m: string, r: string) => l + widths.map(w => '─'.repeat(w + 2)).join(m) + r
   const out = [line('┌', '┬', '┐')]
-  rows.forEach((r, ri) => {
-    out.push('│ ' + widths.map((_, i) => cell(r[i] ?? '', i)).join(' │ ') + ' │')
-    if (ri === 0) out.push(line('├', '┼', '┤'))
+  wrapped.forEach((cells, ri) => {
+    const height = Math.max(1, ...cells.map(c => c.length))
+    for (let k = 0; k < height; k++) out.push('│ ' + cells.map((c, i) => pad(c[k] ?? '', i)).join(' │ ') + ' │')
+    if (ri === 0 || (isTall && ri < wrapped.length - 1)) out.push(line('├', '┼', '┤'))
   })
   out.push(line('└', '┴', '┘'))
   return out
