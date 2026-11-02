@@ -7,7 +7,7 @@ import { MASCOT_COLUMNS, mascotSvg } from './mascot-art'
 const PANE = 'notes'
 const TITLE = 'Perun Notes'
 // Keep in step with .claude-plugin/plugin.json; the engine does not hand a plugin its version.
-const VERSION = '0.1.6'
+const VERSION = '0.1.7'
 
 const notes = atom({ plugin: 'perun-notes', key: 'notes' } as const, [])
 const project = atom({ plugin: 'perun-notes', key: 'project' } as const, '')
@@ -440,6 +440,8 @@ export const register: Register = on => {
 
     const toTodo = (id: string) =>
       save($, l => l.map(n => (n.id === id ? { ...n, kind: 'todo' as const, isDone: false } : n)))
+    const toNote = (id: string) =>
+      save($, l => l.map(n => (n.id === id ? { ...n, kind: 'note' as const, isDone: false } : n)))
     const toggleOpen = (id: string) => update($, expanded, cur => (cur === id ? '' : id))
     const usePrompt = (text: string) => $.prompt.fill({ text: text + '\n', mode: 'insert' })
 
@@ -520,7 +522,11 @@ export const register: Register = on => {
         <Button key={`use-${n.id}`} plain onPress={() => usePrompt(n.text)}>
           <Text color={C.accent}>→ prompt</Text>
         </Button>
-        {n.kind !== 'todo' && (
+        {n.kind === 'todo' ? (
+          <Button key={`note-${n.id}`} plain onPress={() => toNote(n.id)}>
+            <Text color={C.note}>→ note</Text>
+          </Button>
+        ) : (
           <Button key={`todo-${n.id}`} plain onPress={() => toTodo(n.id)}>
             <Text color={C.todo}>→ todo</Text>
           </Button>
@@ -715,28 +721,33 @@ export const register: Register = on => {
           const depth = depthOf(n.id)
           if (depth !== undefined) return underRow(n, depth)
           // Drawn like a pin: a bar down the left of every row, then when it was added. The whole
-          // todo shows, wrapped; while it is being carved, only its first row.
+          // todo shows, wrapped; while it is being carved, only its first row. The box ticks it;
+          // the text opens it, like a note, to its actions.
           const room = inner - 6
           const lines = wrapRows(n.text, room)
           const more = carving.id === n.id ? [] : lines.slice(1)
           const bar = <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>▍ </Text>
           return (
             <Box key={n.id} flexDirection="column" marginBottom={1}>
-              <Button key={`done-${n.id}`} plain onPress={() => toggleDone($, n.id)}>
+              <Box key={`line-${n.id}`}>
                 {bar}
-                {sparked.id === n.id ? (
-                  // The serpent in the box, struck, then the rain.
-                  <Text color={[C.pin, LIGHTNING, RAIN][sparked.frame] ?? C.todo} bold>
-                    {['[∽] ', '[↯] ', '[╵] '][sparked.frame] ?? '[✓] '}
-                  </Text>
-                ) : carving.id === n.id ? (
-                  // Perun's thunder mark, cut into the new todo's box.
-                  <Text color={LIGHTNING}>{'[✲] '}</Text>
-                ) : (
-                  <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
-                )}
-                {rowText(n, room, n.id === lit, n.isDone, lines[0] ?? '')}
-              </Button>
+                <Button key={`done-${n.id}`} plain onPress={() => toggleDone($, n.id)}>
+                  {sparked.id === n.id ? (
+                    // The serpent in the box, struck, then the rain.
+                    <Text color={[C.pin, LIGHTNING, RAIN][sparked.frame] ?? C.todo} bold>
+                      {['[∽] ', '[↯] ', '[╵] '][sparked.frame] ?? '[✓] '}
+                    </Text>
+                  ) : carving.id === n.id ? (
+                    // Perun's thunder mark, cut into the new todo's box.
+                    <Text color={LIGHTNING}>{'[✲] '}</Text>
+                  ) : (
+                    <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
+                  )}
+                </Button>
+                <Button key={`open-${n.id}`} plain onPress={() => toggleOpen(n.id)}>
+                  {rowText(n, room, n.id === lit, n.isDone, lines[0] ?? '')}
+                </Button>
+              </Box>
               {more.map(line => (
                 <Text>
                   {bar}
@@ -745,17 +756,8 @@ export const register: Register = on => {
                   </Text>
                 </Text>
               ))}
-              <Box justifyContent="space-between">
-                <Text color={C.faint}>{`  — ${n.isDone ? 'done' : 'added'} · ${clock(n.at)}`}</Text>
-                <Box columnGap={1}>
-                  <Button key={`send-${n.id}`} plain onPress={() => send($, asMessage(n), n.id)}>
-                    <Text color={C.faint}>↗</Text>
-                  </Button>
-                  <Button key={`del-${n.id}`} plain onPress={() => remove($, n.id)}>
-                    <Text color={C.faint}>×</Text>
-                  </Button>
-                </Box>
-              </Box>
+              <Text color={C.faint}>{`  — ${n.isDone ? 'done' : 'added'} · ${clock(n.at)}`}</Text>
+              {open === n.id && actions(n)}
             </Box>
           )
         })}

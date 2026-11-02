@@ -116,8 +116,10 @@ test('items and open todos are sent as the person\'s message', async ($, on) => 
   await ui.press({ key: 'send-todos' })
   expect(sent).toEqual(['My open todos:\n- [ ] fix login\n- [ ] write docs'])
 
-  const row = (await ui.findAll({ type: 'Button' })).find(b => /^send-/.test(b.key ?? '') && b.key !== 'send-todos')
-  await ui.press({ key: row?.key ?? '' })
+  // Newest first: fix login's row opens first.
+  const opener = (await ui.findAll({ type: 'Button' })).find(b => /^open-/.test(b.key ?? ''))
+  await ui.press({ key: opener?.key ?? '' })
+  await ui.press({ key: `send-${(opener?.key ?? '').slice(5)}` })
   expect(sent[1]).toBe('Todo: fix login')
   await ui.unmount()
 })
@@ -246,8 +248,9 @@ test('a sent item: the eagle flies off toward the chat and Perun looks after it'
   await $.command.run({ command: 'todo', args: 'fly away' })
   await clock.advance(2000)
   const ui = await $.ui.mount(PANE)
-  const send = (await ui.findAll({ type: 'Button' })).find(b => /^send-/.test(b.key ?? '') && b.key !== 'send-todos')
-  await ui.press({ key: send?.key ?? '' })
+  const opener = await ui.find({ type: 'Button', text: /fly away/ })
+  await ui.press({ key: opener?.key ?? '' })
+  await ui.press({ key: `send-${(opener?.key ?? '').slice(5)}` })
 
   const eagleAt = async () => {
     const row = await ui.find({ type: 'Button', text: /ᵛ/ })
@@ -289,8 +292,9 @@ test('a deleted item sinks into Nav, and undo brings it back up', async ($, on) 
   await $.command.run({ command: 'todo', args: 'old chore' })
   await clock.advance(2000)
   const ui = await $.ui.mount(PANE)
-  const del = (await ui.findAll({ type: 'Button' })).find(b => /^del-/.test(b.key ?? ''))
-  await ui.press({ key: del?.key ?? '' })
+  const opener = await ui.find({ type: 'Button', text: /old chore/ })
+  await ui.press({ key: opener?.key ?? '' })
+  await ui.press({ key: `del-${(opener?.key ?? '').slice(5)}` })
 
   expect((await ui.find({ type: 'Text', text: /^old chore$/ }))?.props.color).toBe('subtle')
   await clock.advance(120)
@@ -325,9 +329,9 @@ test('ticking a todo: the serpent is struck, rain falls, then the tick', async (
   await clock.advance(2000)
   const ui = await $.ui.mount(PANE)
   const keyOf = async (text: RegExp) => (await ui.find({ type: 'Button', text }))?.key ?? ''
-  const key = await keyOf(/tick me/)
-  // The row's button reads its bar, its box, then its text.
-  const box = async () => ({ text: (await ui.find({ key }))?.text.slice(2, 6) })
+  // The box is its own button; the text beside it opens the todo.
+  const key = `done-${(await keyOf(/tick me/)).slice(5)}`
+  const box = async () => ({ text: (await ui.find({ key }))?.text })
 
   await ui.press({ key })
   expect((await box())?.text).toBe('[∽] ')
@@ -363,7 +367,7 @@ test('the last open todo ticked: rain sweeps the rule, Perun raises his axe and 
   const figure = async () => JSON.stringify((await ui.findAll({ type: 'Text', in: 'perun' })).map(t => [t.text, t.props.color, t.props.backgroundColor]))
   const still = await figure()
 
-  await ui.press({ key: (await ui.find({ type: 'Button', text: /the last one/ }))?.key ?? '' })
+  await ui.press({ key: `done-${((await ui.find({ type: 'Button', text: /the last one/ }))?.key ?? '').slice(5)}` })
   expect(await ui.find({ type: 'Text', text: /Veles is driven back to Nav\./ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /╷/ })).toBeTruthy()
   await ui.advance(500)
@@ -545,5 +549,40 @@ test('a note is barred like a pin: one line until opened, then all of it', async
   expect((await barred()).length).toBeGreaterThan(1)
   expect((await ui.findAll({ type: 'Text' })).some(t => t.text.includes('new one'))).toBe(true)
   expect(await ui.find({ key: `del-${(row?.key ?? '').slice(5)}` })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('a todo opens like a note: send, prompt, to a note, delete; its box still ticks it', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  const filled: string[] = []
+  on('prompt.fill', (_, e) => {
+    filled.push(e.text)
+    return { isFilled: true }
+  })
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'todo', args: 'water the oak' })
+  await clock.advance(2000)
+  const ui = await $.ui.mount(PANE)
+  const opener = await ui.find({ type: 'Button', text: /water the oak/ })
+  const id = (opener?.key ?? '').slice(5)
+  expect(await ui.find({ key: `send-${id}` })).toBeFalsy()
+
+  await ui.press({ key: opener?.key ?? '' })
+  for (const k of ['send', 'use', 'note', 'del']) expect(await ui.find({ key: `${k}-${id}` })).toBeTruthy()
+  expect(await ui.find({ key: `todo-${id}` })).toBeFalsy()
+
+  await ui.press({ key: `use-${id}` })
+  expect(filled).toEqual(['water the oak\n'])
+
+  await ui.press({ key: `note-${id}` })
+  expect(await ui.find({ key: `done-${id}` })).toBeFalsy()
+  expect(await ui.find({ type: 'Button', text: /^▍ water the oak$/ })).toBeTruthy()
   await ui.unmount()
 })
