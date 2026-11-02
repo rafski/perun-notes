@@ -340,3 +340,17 @@ test('the add field grows to fit its text, and shrinks once added', async ($, on
   expect(await ui.find({ type: 'Text', text: /check the relay/ })).toBeTruthy()
   await ui.unmount()
 })
+
+test('the version shows at the bottom right', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+  expect(await ui.find({ type: 'Text', text: /^v\d+\.\d+\.\d+$/ })).toBeTruthy()
+  await ui.unmount()
+})

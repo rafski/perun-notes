@@ -6,6 +6,8 @@ import { MASCOT_COLUMNS, mascotSvg } from './mascot-art'
 
 const PANE = 'notes'
 const TITLE = 'Perun Notes'
+// Keep in step with .claude-plugin/plugin.json; the engine does not hand a plugin its version.
+const VERSION = '0.1.2'
 
 const notes = atom({ plugin: 'perun-notes', key: 'notes' } as const, [])
 const project = atom({ plugin: 'perun-notes', key: 'project' } as const, '')
@@ -628,6 +630,10 @@ export const register: Register = on => {
           <Text color={C.faint}>nothing written yet</Text>
         )}
         {plain.map(noteRow)}
+
+        <Box key="version" justifyContent="flex-end" marginTop={1}>
+          <Text color={C.faint}>{`v${VERSION}`}</Text>
+        </Box>
       </Box>
     )
   })
