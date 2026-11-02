@@ -1,13 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Note, NoteKind } from '../types'
+import type { Cue, Effect, Note, NoteKind } from '../types'
 import { MASCOT_COLUMNS, mascotSvg } from './mascot-art'
 
 const PANE = 'notes'
 const TITLE = 'Perun Notes'
 // Keep in step with .claude-plugin/plugin.json; the engine does not hand a plugin its version.
-const VERSION = '0.1.2'
+const VERSION = '0.1.3'
 
 const notes = atom({ plugin: 'perun-notes', key: 'notes' } as const, [])
 const project = atom({ plugin: 'perun-notes', key: 'project' } as const, '')
@@ -20,23 +20,46 @@ const DRAFT_MAX_ROWS = 8
 const expanded = atom({ plugin: 'perun-notes', key: 'expanded' } as const, '')
 const lastDeleted = atom({ plugin: 'perun-notes', key: 'lastDeleted' } as const, [])
 const query = atom({ plugin: 'perun-notes', key: 'query' } as const, '')
-// Bumped on every add, pin and send: Perun strikes his axe.
-const strikes = atom({ plugin: 'perun-notes', key: 'strikes' } as const, 0)
+// Perun's reaction to the last thing done; `n` goes up each time so the same move replays.
+const cue = atom({ plugin: 'perun-notes', key: 'cue' } as const, { n: 0, move: 'strike' })
 // The item just added, drawn lit for a moment.
 const fresh = atom({ plugin: 'perun-notes', key: 'fresh' } as const, '')
 
 const FRESH_MS = 1600
-
-// A deleted item is struck by lightning before it goes: the bolt, the crackle, the embers.
-const zap = atom({ plugin: 'perun-notes', key: 'zap' } as const, { id: '', frame: 0 })
-const ZAP_FRAMES_MS = [0, 140, 280]
-const ZAP_DONE_MS = 440
 const LIGHTNING = '#ffe45c'
+const RAIN = '#7fb2e5'
+const ROOTS = '#7b4a22'
 
-// A ticked todo gets a small spark in its box: a bolt, then a bright tick, then rest.
-const spark = atom({ plugin: 'perun-notes', key: 'spark' } as const, { id: '', frame: 0 })
+// Each effect is one row playing frames: `id` the row ('' when idle), `frame` how far along.
+const REST = { id: '', frame: 0 }
+const effects = atom({ plugin: 'perun-notes', key: 'effects' } as const, {
+  carve: REST,
+  stone: REST,
+  spark: REST,
+  sink: REST,
+  rise: REST,
+  fly: REST,
+  victory: REST,
+})
+
+// A new note or todo is carved into the oak, a letter at a time, chips flying.
+const CARVE_FRAMES = 5
+const CARVE_STEP_MS = 70
+// A pin is a thunderstone dropping onto its quote bar.
+const STONE_GLYPHS = ['˙', '▾', '▼']
+const STONE_STEP_MS = 90
+// A ticked todo: the serpent in its box, struck, then rain, then the tick.
 const SPARK_STEP_MS = 120
-const SPARK_DONE_MS = 280
+// A deleted item sinks into Nav: it fades, crumbles, and roots pull it under.
+// Undo brings it back up the same way, in reverse.
+const SINK_STEP_MS = 120
+// A sent item: Perun's eagle carries it off toward the chat.
+const FLY_FRAMES = 5
+const FLY_STEP_MS = 70
+// The last open todo ticked: rain sweeps the todo rule and Perun has his word.
+const RAIN_FRAMES = 8
+const RAIN_STEP_MS = 150
+const VICTORY_MS = 4000
 
 const wasClosed = atom({ plugin: 'perun-notes', key: 'wasClosed' } as const, false)
 // Whether the pane opens by itself at the start of a session; off, it waits for /notes.
@@ -62,12 +85,32 @@ async function save($: $Of, fn: (list: Note[]) => Note[]) {
   await $.store.set(storeKey(cwd), await read($, notes))
 }
 
+const cueMascot = ($: $Of, move: Cue) => update($, cue, c => ({ n: c.n + 1, move }))
+
+// Plays `frames` frames on row `id`, `stepMs` apart, then clears and runs `then`.
+async function play($: $Of, fx: Effect, id: string, frames: number, stepMs: number, then?: () => Promise<unknown>) {
+  const set = (frame: number | undefined) =>
+    update($, effects, all => {
+      // A later play of the same effect on another row has taken over: leave it be.
+      if (frame !== 0 && all[fx].id !== id) return all
+      return { ...all, [fx]: frame === undefined ? REST : { id, frame } }
+    })
+  await set(0)
+  for (let i = 1; i < frames; i++) $.clock.after(i * stepMs, () => void set(i))
+  $.clock.after(frames * stepMs, async () => {
+    await set(undefined)
+    await then?.()
+  })
+}
+
 async function add($: $Of, note: Note) {
   if (note.text === '') return
   await save($, list => [note, ...list])
-  await update($, strikes, n => n + 1)
+  await cueMascot($, 'tap')
   await update($, fresh, () => note.id)
   $.clock.after(FRESH_MS, () => void update($, fresh, id => (id === note.id ? '' : id)))
+  if (note.kind === 'pin') await play($, 'stone', note.id, STONE_GLYPHS.length, STONE_STEP_MS)
+  else await play($, 'carve', note.id, CARVE_FRAMES, CARVE_STEP_MS)
 }
 
 async function addTyped($: $Of, text: string, kind: 'note' | 'todo') {
@@ -86,27 +129,34 @@ async function pin($: $Of, which: 'q' | 'a') {
   return true
 }
 
+async function toggleDone($: $Of, id: string) {
+  const all = await read($, notes)
+  const isTicking = all.some(n => n.id === id && !n.isDone)
+  await save($, l => l.map(n => (n.id === id ? { ...n, isDone: !n.isDone } : n)))
+  if (!isTicking) return
+  const isLast = !all.some(n => n.kind === 'todo' && !n.isDone && n.id !== id)
+  await cueMascot($, isLast ? 'raise' : 'strike')
+  await play($, 'spark', id, 3, SPARK_STEP_MS)
+  if (isLast) await play($, 'victory', id, Math.ceil(VICTORY_MS / RAIN_STEP_MS), RAIN_STEP_MS)
+}
+
 async function remove($: $Of, id: string) {
-  if ((await read($, zap)).id === id) return
-  await update($, strikes, n => n + 1)
-  await update($, zap, () => ({ id, frame: 0 }))
-  ZAP_FRAMES_MS.slice(1).forEach((ms, i) =>
-    $.clock.after(ms, () => void update($, zap, z => (z.id === id ? { id, frame: i + 1 } : z))),
-  )
-  $.clock.after(ZAP_DONE_MS, () => void removeNow($, id))
+  if ((await read($, effects)).sink.id === id) return
+  await play($, 'sink', id, 4, SINK_STEP_MS, () => removeNow($, id))
 }
 
 async function removeNow($: $Of, id: string) {
   const gone = (await read($, notes)).filter(n => n.id === id)
   await update($, lastDeleted, () => gone)
   await save($, list => list.filter(n => n.id !== id))
-  await update($, zap, z => (z.id === id ? { id: '', frame: 0 } : z))
 }
 
 async function undoDelete($: $Of) {
   const back = await read($, lastDeleted)
   await update($, lastDeleted, () => [])
   await save($, list => [...back, ...list].sort((a, b) => b.at - a.at))
+  const first = back[0]
+  if (first) await play($, 'rise', first.id, 3, SINK_STEP_MS)
 }
 
 // What an item says when sent as the person's message: Claude's own words come back quoted.
@@ -117,9 +167,10 @@ const asMessage = (n: Note) =>
       ? `Todo: ${n.text}`
       : n.text
 
-async function send($: $Of, text: string) {
+async function send($: $Of, text: string, id?: string) {
   await $.prompt.submit({ text, asUser: true })
-  await update($, strikes, n => n + 1)
+  await cueMascot($, 'lookLeft')
+  if (id) await play($, 'fly', id, FLY_FRAMES, FLY_STEP_MS)
   $.ui.toast('Sent to the conversation.')
 }
 
@@ -168,6 +219,19 @@ const rowCount = (text: string, width: number) =>
 const oneLine = (text: string, width: number) => {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length > width ? line.slice(0, Math.max(1, width - 1)) + '…' : line
+}
+
+// A row being carved: the letters cut so far, and the chips flying off the blade.
+const carved = (text: string, frame: number) => {
+  const cut = text.slice(0, Math.ceil((text.length * (frame + 1)) / CARVE_FRAMES))
+  return { cut, chips: frame < CARVE_FRAMES - 1 ? ' ·˙' : '' }
+}
+
+// A row the eagle flies over, right to left toward the chat: what is before and after it.
+const flown = (text: string, room: number, frame: number) => {
+  const line = text.padEnd(room).slice(0, room)
+  const at = Math.round((room - 1) * (1 - (frame + 1) / FLY_FRAMES))
+  return { before: line.slice(0, at), after: line.slice(at + 1) }
 }
 
 // Theme colour names, so the pane follows the person's Claude Code theme.
@@ -346,10 +410,17 @@ export const register: Register = on => {
     const typed = await read($, draft)
     const open = await read($, expanded)
     const deleted = await read($, lastDeleted)
-    const strikeCount = await read($, strikes)
+    const cued = await read($, cue)
     const lit = await read($, fresh)
-    const struck = await read($, zap)
-    const sparked = await read($, spark)
+    const {
+      carve: carving,
+      stone: dropping,
+      spark: sparked,
+      sink: sinking,
+      rise: rising,
+      fly: flying,
+      victory: won,
+    } = await read($, effects)
     const w = Math.max(24, e.props.bodyColumns ?? 40)
     // The pane pads one column on each side.
     const inner = w - 2
@@ -367,49 +438,83 @@ export const register: Register = on => {
     // Open todos first, done ones after, each newest first.
     const sortedTodos = [...todos.filter(n => !n.isDone), ...todos.filter(n => n.isDone)]
 
-    const toggleDone = async (id: string) => {
-      const isTicking = all.some(n => n.id === id && !n.isDone)
-      await save($, l => l.map(n => (n.id === id ? { ...n, isDone: !n.isDone } : n)))
-      if (!isTicking) return
-      await update($, spark, () => ({ id, frame: 0 }))
-      $.clock.after(SPARK_STEP_MS, () => void update($, spark, s => (s.id === id ? { id, frame: 1 } : s)))
-      $.clock.after(SPARK_DONE_MS, () => void update($, spark, s => (s.id === id ? { id: '', frame: 0 } : s)))
-    }
     const toTodo = (id: string) =>
       save($, l => l.map(n => (n.id === id ? { ...n, kind: 'todo' as const, isDone: false } : n)))
     const toggleOpen = (id: string) => update($, expanded, cur => (cur === id ? '' : id))
     const usePrompt = (text: string) => $.prompt.fill({ text: text + '\n', mode: 'insert' })
 
     // A ruled section heading: label, a faint rule to the edge, then a dim figure.
-    const rule = (label: string, color: string, right: string) => (
-      <Box key={`rule-${label}`} marginTop={1}>
-        <Text color={color} bold>
-          {label}
-        </Text>
-        <Text color={C.faint}>{' ' + '─'.repeat(Math.max(2, w - label.length - right.length - 2)) + ' '}</Text>
-        <Text dimColor>{right}</Text>
-      </Box>
-    )
+    // With `isRaining`, rain sweeps along the rule instead of the line.
+    const rule = (label: string, color: string, right: string, isRaining = false) => {
+      const span = Math.max(2, w - label.length - right.length - 2)
+      return (
+        <Box key={`rule-${label}`} marginTop={1}>
+          <Text color={color} bold>
+            {label}
+          </Text>
+          {isRaining ? (
+            <Text color={RAIN}>{' ' + (won.frame % 2 === 0 ? '╷ ' : ' ╷').repeat(Math.ceil(span / 2)).slice(0, span) + ' '}</Text>
+          ) : (
+            <Text color={C.faint}>{' ' + '─'.repeat(span) + ' '}</Text>
+          )}
+          <Text dimColor>{right}</Text>
+        </Box>
+      )
+    }
 
-    // A row being struck: the bolt lands on it, crackles across, and leaves embers.
-    const zapRow = (n: Note) => {
+    // A row going down into Nav, or coming back up: it fades, crumbles, and roots take it.
+    const underRow = (n: Note, depth: number) => {
       const room = Math.max(4, inner)
       const frame =
-        struck.frame === 0 ? (
-          <Text color={LIGHTNING} bold>
-            {'↯ ' + oneLine(n.text, room - 2)}
-          </Text>
-        ) : struck.frame === 1 ? (
-          <Text color={LIGHTNING}>{'╲╱'.repeat(Math.ceil(room / 2)).slice(0, room)}</Text>
+        depth === 0 ? (
+          <Text color={C.faint}>{oneLine(n.text, room)}</Text>
+        ) : depth === 1 ? (
+          <Text color={C.faint}>{'▒'.repeat(Math.min(room, Math.max(1, n.text.length)))}</Text>
+        ) : depth === 2 ? (
+          <Text color={C.faint}>{'░'.repeat(Math.min(room, Math.max(1, n.text.length)))}</Text>
         ) : (
-          <Text color={C.faint}>{' · ˙'.repeat(Math.ceil(room / 4)).slice(0, room)}</Text>
+          <Text color={ROOTS}>{' ╿ ┃ ╽ ┃'.repeat(Math.ceil(room / 8)).slice(0, room)}</Text>
         )
       return <Box key={n.id}>{frame}</Box>
+    }
+    // How deep a row is, when it is sinking or rising; undefined when it is at rest.
+    const depthOf = (id: string) =>
+      sinking.id === id ? sinking.frame : rising.id === id ? 3 - rising.frame : undefined
+
+    // A row's text as drawn, carved or flown over when it is.
+    const rowText = (n: Note, room: number, bold?: boolean, dim?: boolean) => {
+      if (flying.id === n.id) {
+        const { before, after } = flown(oneLine(n.text, room), room, flying.frame)
+        return (
+          <Text dimColor={dim}>
+            {before}
+            <Text color={C.accent} bold>
+              ᵛ
+            </Text>
+            {after}
+          </Text>
+        )
+      }
+      const line = oneLine(n.text, room)
+      if (carving.id === n.id) {
+        const { cut, chips } = carved(line, carving.frame)
+        return (
+          <Text bold={bold}>
+            {cut}
+            <Text color={C.faint}>{chips}</Text>
+          </Text>
+        )
+      }
+      return (
+        <Text dimColor={dim} strikethrough={dim} bold={bold}>
+          {line}
+        </Text>
+      )
     }
 
     const actions = (n: Note) => (
       <Box key={`act-${n.id}`} columnGap={2} paddingLeft={2}>
-        <Button key={`send-${n.id}`} plain onPress={() => send($, asMessage(n))}>
+        <Button key={`send-${n.id}`} plain onPress={() => send($, asMessage(n), n.id)}>
           <Text color={C.accent}>↗ send</Text>
         </Button>
         <Button key={`use-${n.id}`} plain onPress={() => usePrompt(n.text)}>
@@ -428,15 +533,19 @@ export const register: Register = on => {
 
     // A pin reads as a quote: a bar down the left, the words, then who said it.
     const pinRow = (n: Note) => {
-      if (struck.id === n.id) return zapRow(n)
+      const depth = depthOf(n.id)
+      if (depth !== undefined) return underRow(n, depth)
       const isOpen = open === n.id
       // The bar and its space take two columns of every row.
       const lines = isOpen ? wrapRows(n.text, inner - 2) : [oneLine(n.text, inner - 2)]
+      const isDropping = dropping.id === n.id
       return (
         <Box key={n.id} flexDirection="column" marginBottom={1}>
           <Button key={`open-${n.id}`} plain onPress={() => toggleOpen(n.id)}>
-            <Text color={n.id === lit ? C.accent : C.pin}>▍ </Text>
-            <Text bold={n.id === lit}>{lines[0] ?? ''}</Text>
+            <Text color={isDropping ? LIGHTNING : n.id === lit ? C.accent : C.pin}>
+              {(isDropping ? STONE_GLYPHS[dropping.frame] ?? '▍' : '▍') + ' '}
+            </Text>
+            {isOpen || flying.id !== n.id ? <Text bold={n.id === lit}>{lines[0] ?? ''}</Text> : rowText(n, inner - 2)}
           </Button>
           {lines.slice(1).map(line => (
             <Text>
@@ -451,7 +560,8 @@ export const register: Register = on => {
     }
 
     const noteRow = (n: Note) => {
-      if (struck.id === n.id) return zapRow(n)
+      const depth = depthOf(n.id)
+      if (depth !== undefined) return underRow(n, depth)
       const isOpen = open === n.id
       const time = clock(n.at)
       return (
@@ -459,7 +569,7 @@ export const register: Register = on => {
           <Box justifyContent="space-between">
             <Button key={`open-${n.id}`} plain onPress={() => toggleOpen(n.id)}>
               <Text color={n.id === lit ? C.accent : C.note}>{isOpen ? '▾ ' : n.id === lit ? '✦ ' : '• '}</Text>
-              <Text bold={n.id === lit}>{isOpen ? '' : oneLine(n.text, inner - time.length - 1)}</Text>
+              {isOpen ? <Text>{''}</Text> : rowText(n, inner - time.length - 1, n.id === lit)}
             </Button>
             <Text color={C.faint}>{time}</Text>
           </Box>
@@ -480,7 +590,9 @@ export const register: Register = on => {
 
     // Perun's word on the state of things.
     const quip =
-      all.length === 0
+      won.id !== ''
+        ? 'Veles is driven back to Nav.'
+        : all.length === 0
         ? 'Write, and I will keep it.'
         : openCount === 0
           ? 'All quiet in Prav.'
@@ -498,7 +610,7 @@ export const register: Register = on => {
           <Box columnGap={2} marginTop={1}>
             {/* Only the terminal and desktop run a Client's frame clock. */}
             {'Client' in els && (e.surface === 'terminal' || e.surface === 'desktop') ? (
-              <els.Client key="perun" module="./mascot.tsx" props={{ strikes: strikeCount }} />
+              <els.Client key="perun" module="./mascot.tsx" props={{ cue: cued }} />
             ) : 'Svg' in els ? (
               <els.Svg source={mascotSvg({ isBlinking: false, isStriking: false })} alt="Perun, the thunder god, holding his axe" />
             ) : null}
@@ -548,7 +660,11 @@ export const register: Register = on => {
               value={q}
               placeholder="find…"
               submitLabel="done"
-              onInput={value => update($, query, () => value)}
+              onInput={async value => {
+                await update($, query, () => value)
+                // Perun looks about while you search.
+                if (value.trim() !== '') await cueMascot($, 'glance')
+              }}
               onSubmit={value => update($, query, () => value)}
             />
           ) : isSearching ? (
@@ -582,7 +698,7 @@ export const register: Register = on => {
           </Box>
           {isSearching && (
             <Box columnGap={2}>
-              <Text color={C.accent}>{`${list.length} of ${all.length} found`}</Text>
+              <Text color={C.accent}>{list.length === 0 ? 'Veles hides it.' : `${list.length} of ${all.length} found`}</Text>
               <Button key="clear" plain hotkey="c" onPress={() => update($, query, () => '')}>
                 <Text dimColor>clear</Text>
               </Button>
@@ -590,26 +706,28 @@ export const register: Register = on => {
           )}
         </Box>
 
-        {(!isSearching || todos.length > 0) && rule('todo', C.todo, todos.length > 0 ? `${dots}${doneCount}/${todos.length}` : '')}
+        {(!isSearching || todos.length > 0) && rule('todo', C.todo, todos.length > 0 ? `${dots}${doneCount}/${todos.length}` : '', won.id !== '')}
         {(!isSearching || todos.length > 0) && todos.length === 0 && (
           <Text color={C.faint}>nothing to do</Text>
         )}
-        {sortedTodos.map(n => struck.id === n.id ? zapRow(n) : (
+        {sortedTodos.map(n => depthOf(n.id) !== undefined ? underRow(n, depthOf(n.id) ?? 0) : (
           <Box key={n.id} justifyContent="space-between">
-            <Button key={`done-${n.id}`} plain onPress={() => toggleDone(n.id)}>
+            <Button key={`done-${n.id}`} plain onPress={() => toggleDone($, n.id)}>
               {sparked.id === n.id ? (
-                <Text color={LIGHTNING} bold>
-                  {sparked.frame === 0 ? '[↯] ' : '[✓] '}
+                // The serpent in the box, struck, then the rain.
+                <Text color={[C.pin, LIGHTNING, RAIN][sparked.frame] ?? C.todo} bold>
+                  {['[∽] ', '[↯] ', '[╵] '][sparked.frame] ?? '[✓] '}
                 </Text>
+              ) : carving.id === n.id ? (
+                // Perun's thunder mark, cut into the new todo's box.
+                <Text color={LIGHTNING}>{'[✲] '}</Text>
               ) : (
                 <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
               )}
-              <Text dimColor={n.isDone} strikethrough={n.isDone} bold={n.id === lit}>
-                {oneLine(n.text, inner - 8)}
-              </Text>
+              {rowText(n, inner - 8, n.id === lit, n.isDone)}
             </Button>
             <Box columnGap={1}>
-              <Button key={`send-${n.id}`} plain onPress={() => send($, asMessage(n))}>
+              <Button key={`send-${n.id}`} plain onPress={() => send($, asMessage(n), n.id)}>
                 <Text color={C.faint}>↗</Text>
               </Button>
               <Button key={`del-${n.id}`} plain onPress={() => remove($, n.id)}>

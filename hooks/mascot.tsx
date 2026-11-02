@@ -1,16 +1,20 @@
 // Perun on the surface's frame clock: he blinks, and every few seconds does one small idle
-// move (a glance, a glint, wind in his beard or cloak, far thunder); lightning flickers over
-// his axe each time `strikes` goes up (a note added, a pin, a send). Only this region redraws.
+// move (a glance, a glint, wind in his beard or cloak, far thunder). Each time `cue.n` goes up
+// he answers what was done: lightning for a ticked todo, a tap of the blade for a new item,
+// the axe raised for the last todo, a look toward the chat for a send, glances while
+// searching. Only this region redraws.
 import type { ClientModule } from 'claude-code'
 
 import { mascotRows } from './mascot-art'
 import type { IdleMove } from './mascot-art'
+import type { Cue } from '../types'
 
-type Props = { strikes: number }
+type Props = { cue: { n: number; move: Cue } }
 type Ref = {
   tick: number
-  lastStrikes: number
-  strikeTick: number
+  lastCue: number
+  move: Cue
+  cueTick: number
   blinkUntil: number
   nextBlink: number
   idle: IdleMove
@@ -25,6 +29,8 @@ type State = { ref: Ref }
 const TICK_MS = 100
 // Which ticks of a strike are lit: a short flicker, not a flash.
 const FLICKER = [true, true, false, true, false, false, true]
+// How long each answer lasts, in ticks.
+const CUE_TICKS: Record<Cue, number> = { strike: 7, tap: 2, raise: 16, lookLeft: 12, glance: 10 }
 
 // Each idle move, how long it lasts in ticks, and how many ticks each of its frames holds.
 const MOVES: { move: IdleMove; ticks: number; step: number }[] = [
@@ -44,8 +50,9 @@ const Mascot: ClientModule<Props, State> = (props, surface) => {
   // The first draw strikes once, as a greeting.
   const ref = surface.state?.ref ?? {
     tick: 0,
-    lastStrikes: -1,
-    strikeTick: -99,
+    lastCue: -1,
+    move: 'strike' as Cue,
+    cueTick: -99,
     blinkUntil: -1,
     nextBlink: 35,
     idle: 'none' as IdleMove,
@@ -55,20 +62,35 @@ const Mascot: ClientModule<Props, State> = (props, surface) => {
     seed: 20251024,
     pose: '',
   }
-  if (props.strikes !== ref.lastStrikes) {
-    ref.lastStrikes = props.strikes
-    ref.strikeTick = ref.tick
+  const n = props.cue?.n ?? 0
+  if (n !== ref.lastCue) {
+    // The first draw strikes once, whatever the last cue was.
+    ref.move = ref.lastCue === -1 ? 'strike' : (props.cue?.move ?? 'strike')
+    ref.lastCue = n
+    ref.cueTick = ref.tick
   }
 
   const poseAt = () => {
-    const since = ref.tick - ref.strikeTick
+    const since = ref.tick - ref.cueTick
+    const isCued = since >= 0 && since < CUE_TICKS[ref.move]
+    const isFlicker = since < FLICKER.length && FLICKER[since] === true
     const isIdle = ref.tick <= ref.idleUntil
     const step = MOVES.find(m => m.move === ref.idle)?.step ?? 99
+    // A look the cue asks for takes the place of any idle move.
+    const look: IdleMove | undefined = !isCued
+      ? undefined
+      : ref.move === 'lookLeft'
+        ? 'lookLeft'
+        : ref.move === 'glance'
+          ? since < CUE_TICKS.glance / 2 ? 'lookLeft' : 'lookRight'
+          : undefined
     return {
-      isStriking: since >= 0 && since < FLICKER.length && FLICKER[since] === true,
+      isStriking: isCued && (ref.move === 'strike' || ref.move === 'raise') && isFlicker,
+      isBladeLit: isCued && ref.move === 'tap',
+      isRaised: isCued && ref.move === 'raise',
       isBlinking: ref.tick <= ref.blinkUntil,
-      idle: isIdle ? ref.idle : ('none' as IdleMove),
-      frame: isIdle ? Math.floor((ref.tick - ref.idleTick) / step) : 0,
+      idle: look ?? (isIdle ? ref.idle : ('none' as IdleMove)),
+      frame: look ? 0 : isIdle ? Math.floor((ref.tick - ref.idleTick) / step) : 0,
     }
   }
 
@@ -95,7 +117,7 @@ const Mascot: ClientModule<Props, State> = (props, surface) => {
         ref.nextIdle = ref.tick + 30 + (ref.seed % 51)
       }
       const pose = poseAt()
-      const key = `${pose.isBlinking}${pose.isStriking}${pose.idle}${pose.frame}`
+      const key = `${pose.isBlinking}${pose.isStriking}${pose.isBladeLit}${pose.isRaised}${pose.idle}${pose.frame}`
       // Redraw only when what is drawn changes.
       if (key !== ref.pose) {
         ref.pose = key

@@ -29,6 +29,18 @@ const BASE = [
   '.bbbbbbb..',
 ]
 
+// The axe raised in victory: blade at the top, his hand up the handle.
+const RAISED = [
+  '..hHHh..WA',
+  '.HHHHHH.WA',
+  '.SESSES.W.',
+  'GGSSSSGGW.',
+  '.gGGGGgSW.',
+  '.BBgGBB.W.',
+  'BBBBBBBB..',
+  '.bbbbbbb..',
+]
+
 const EYES: [number, number][] = [
   [2, 2],
   [2, 5],
@@ -51,13 +63,22 @@ export const MASCOT_ROWS = 4
 // wind take his beard or cloak, or hear thunder far off. `frame` alternates within a move.
 export type IdleMove = 'none' | 'lookLeft' | 'lookRight' | 'glint' | 'beard' | 'cloak' | 'rumble'
 
-export type MascotPose = { isBlinking: boolean; isStriking: boolean; idle?: IdleMove; frame?: number }
+// `isBladeLit` lights the blade alone (a tap); `isRaised` holds the axe up.
+export type MascotPose = {
+  isBlinking: boolean
+  isStriking: boolean
+  isBladeLit?: boolean
+  isRaised?: boolean
+  idle?: IdleMove
+  frame?: number
+}
 
 // One run of cells drawn alike: the glyph repeated, its colour, and the colour behind it.
 export type Run = { text: string; color?: string; backgroundColor?: string }
 
 function gridOf(pose: MascotPose) {
-  const grid = BASE.map(row => row.split(''))
+  const grid = (pose.isRaised ? RAISED : BASE).map(row => row.split(''))
+  const blade: [number, number][] = pose.isRaised ? [[0, 9], [1, 9]] : BLADE
   const paint = (cells: [number, number][], key: string) => {
     for (const [y, x] of cells) {
       const row = grid[y]
@@ -98,8 +119,9 @@ function gridOf(pose: MascotPose) {
       break
   }
   if (pose.isBlinking) paint(EYES, 'S')
+  if (pose.isBladeLit) paint(blade, 'L')
   if (pose.isStriking) {
-    paint(BLADE, 'L')
+    paint(blade, 'L')
     paint(BOLT, 'L')
   }
   return grid

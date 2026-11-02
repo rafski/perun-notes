@@ -16,6 +16,7 @@ const PANE = {
 } as const
 
 test('notes, todos and pins show in the pane', async ($, on) => {
+  const clock = mock.clock(on)
   on('command.register', () => ({ value: { command: 'x' } }))
   on('tool.register', () => ({ value: {} }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -44,6 +45,7 @@ test('notes, todos and pins show in the pane', async ($, on) => {
   await $.command.run({ command: 'note', args: 'todo: ship it' })
   await $.command.run({ command: 'pin', args: '' })
   await $.command.run({ command: 'pin', args: 'q' })
+  await clock.advance(2000)
 
   const ui = await $.ui.mount(PANE)
   expect(await ui.find({ type: 'Text', text: /^○○ 0\/2$/ })).toBeTruthy()
@@ -56,6 +58,7 @@ test('notes, todos and pins show in the pane', async ($, on) => {
 })
 
 test('search filters every section and /notes takes a query', async ($, on) => {
+  const clock = mock.clock(on)
   const kept: Record<string, unknown> = {}
   on('store.get', (_, e) => ({ value: kept[e.key] }))
   on('store.set', (_, e) => {
@@ -71,6 +74,7 @@ test('search filters every section and /notes takes a query', async ($, on) => {
   await $.command.run({ command: 'note', args: 'Relay keys rotate monthly' })
   await $.command.run({ command: 'todo', args: 'rotate relay key' })
   await $.command.run({ command: 'note', args: 'buy milk' })
+  await clock.advance(2000)
   const ran = await $.command.run({ command: 'notes', args: 'relay' })
   expect(ran.text).toBe('2 notes match "relay".')
 
@@ -150,34 +154,110 @@ test('an expanded pin keeps its bar on every row', async ($, on) => {
   await ui.unmount()
 })
 
-test('Perun strikes on a new note, settles, and the new note glows', async ($, on) => {
+test('a new note: Perun taps his blade and the note is carved in, chips flying', async ($, on) => {
   const kept: Record<string, unknown> = {}
   on('store.get', (_, e) => ({ value: kept[e.key] }))
   on('store.set', (_, e) => {
     kept[e.key] = e.value
     return { value: undefined }
   })
+  const clock = mock.clock(on)
   on('command.register', () => ({ value: { command: 'x' } }))
   on('tool.register', () => ({ value: {} }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
 
   await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount(PANE)
-  const lightning = { type: 'Text', text: /^▀+$/, in: 'perun' } as const
-  const isLit = async () =>
-    (await ui.findAll(lightning)).some(t => t.props.color === '#ffe45c' || t.props.backgroundColor === '#ffe45c')
+  const lit = async () =>
+    (await ui.findAll({ type: 'Text', in: 'perun' })).filter(
+      t => t.props.color === '#ffe45c' || t.props.backgroundColor === '#ffe45c',
+    ).length
 
-  // The greeting strike, then calm.
+  // The greeting strike lights blade and bolt, then calm.
   await ui.advance(100)
-  expect(await isLit()).toBe(true)
+  const greeting = await lit()
+  expect(greeting).toBeGreaterThan(0)
   await ui.advance(1000)
-  expect(await isLit()).toBe(false)
+  expect(await lit()).toBe(0)
 
-  await $.command.run({ command: 'note', args: 'thunder' })
+  await $.command.run({ command: 'note', args: 'thunder over the oak' })
   await ui.advance(100)
-  expect(await isLit()).toBe(true)
+  // A tap lights the blade alone: fewer cells than a strike.
+  expect(await lit()).toBeGreaterThan(0)
+  expect(await lit()).toBeLessThan(greeting)
+
+  // Carved a little at a time, chips flying, then whole and glowing.
+  const row = async () => (await ui.find({ type: 'Button', text: /thu/ }))?.text ?? ''
+  expect(await row()).toMatch(/·˙$/)
+  expect(await row()).not.toMatch(/oak/)
+  await clock.advance(400)
+  expect(await row()).toMatch(/thunder over the oak$/)
   expect(await ui.find({ type: 'Text', text: /✦/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('a new todo has the thunder mark cut in its box; a pin drops a thunderstone', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+  await $.command.run({ command: 'todo', args: 'mark me' })
+  expect(await ui.find({ type: 'Text', text: /^\[✲\] $/ })).toBeTruthy()
+  await clock.advance(400)
+  expect(await ui.find({ type: 'Text', text: /^\[✲\] $/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: /^\[ \] $/ })).toBeTruthy()
+
+  await $.turn.complete({ answer: 'Kept.', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' })
+  await $.command.run({ command: 'pin', args: '' })
+  const bars = async () => (await ui.findAll({ type: 'Text', text: /^. $/ })).map(t => t.text)
+  expect(await bars()).toContain('˙ ')
+  await clock.advance(90)
+  expect(await bars()).toContain('▾ ')
+  await clock.advance(90)
+  expect(await bars()).toContain('▼ ')
+  await clock.advance(200)
+  expect(await bars()).toContain('▍ ')
+  await ui.unmount()
+})
+
+test('a sent item: the eagle flies off toward the chat and Perun looks after it', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'todo', args: 'fly away' })
+  await clock.advance(2000)
+  const ui = await $.ui.mount(PANE)
+  const send = (await ui.findAll({ type: 'Button' })).find(b => /^send-/.test(b.key ?? '') && b.key !== 'send-todos')
+  await ui.press({ key: send?.key ?? '' })
+
+  const eagleAt = async () => {
+    const row = await ui.find({ type: 'Button', text: /ᵛ/ })
+    return row ? row.text.indexOf('ᵛ') : -1
+  }
+  const first = await eagleAt()
+  expect(first).toBeGreaterThan(0)
+  await clock.advance(140)
+  expect(await eagleAt()).toBeLessThan(first)
+  await clock.advance(400)
+  expect(await eagleAt()).toBe(-1)
   await ui.unmount()
 })
 
@@ -196,7 +276,7 @@ test('without a Client the mascot is drawn still', async ($, on) => {
   await ui.unmount()
 })
 
-test('a deleted item is struck by lightning, then gone', async ($, on) => {
+test('a deleted item sinks into Nav, and undo brings it back up', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
   on('command.register', () => ({ value: { command: 'x' } }))
@@ -206,22 +286,31 @@ test('a deleted item is struck by lightning, then gone', async ($, on) => {
 
   await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'todo', args: 'old chore' })
+  await clock.advance(2000)
   const ui = await $.ui.mount(PANE)
   const del = (await ui.findAll({ type: 'Button' })).find(b => /^del-/.test(b.key ?? ''))
   await ui.press({ key: del?.key ?? '' })
 
-  expect(await ui.find({ type: 'Text', text: /^↯ old chore$/ })).toBeTruthy()
-  await clock.advance(140)
-  expect(await ui.find({ type: 'Text', text: /^╲╱/ })).toBeTruthy()
-  await clock.advance(140)
-  expect(await ui.find({ type: 'Text', text: /˙/ })).toBeTruthy()
-  await clock.advance(200)
-  expect(await ui.find({ type: 'Text', text: /old chore|╲╱|˙/ })).toBeFalsy()
-  expect(await ui.find({ key: 'undo' })).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /^old chore$/ }))?.props.color).toBe('subtle')
+  await clock.advance(120)
+  expect(await ui.find({ type: 'Text', text: /^▒+$/ })).toBeTruthy()
+  await clock.advance(120)
+  expect(await ui.find({ type: 'Text', text: /^░+$/ })).toBeTruthy()
+  await clock.advance(120)
+  expect(await ui.find({ type: 'Text', text: /╿/ })).toBeTruthy()
+  await clock.advance(120)
+  expect(await ui.find({ type: 'Text', text: /old chore|▒|░|╿/ })).toBeFalsy()
+
+  await ui.press({ key: 'undo' })
+  expect(await ui.find({ type: 'Text', text: /╿/ })).toBeTruthy()
+  await clock.advance(120)
+  expect(await ui.find({ type: 'Text', text: /^░+$/ })).toBeTruthy()
+  await clock.advance(240)
+  expect(await ui.find({ type: 'Button', text: /old chore/ })).toBeTruthy()
   await ui.unmount()
 })
 
-test('ticking a todo sparks in its box; unticking does not', async ($, on) => {
+test('ticking a todo: the serpent is struck, rain falls, then the tick', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
   on('command.register', () => ({ value: { command: 'x' } }))
@@ -231,23 +320,74 @@ test('ticking a todo sparks in its box; unticking does not', async ($, on) => {
 
   await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'todo', args: 'tick me' })
+  await $.command.run({ command: 'todo', args: 'and me' })
+  await clock.advance(2000)
   const ui = await $.ui.mount(PANE)
-  const box = (await ui.findAll({ type: 'Button' })).find(b => /^done-/.test(b.key ?? ''))
-  const key = box?.key ?? ''
-  const mark = async () => (await ui.find({ type: 'Text', text: /^\[.\] $/ }))?.props.color
+  const keyOf = async (text: RegExp) => (await ui.find({ type: 'Button', text }))?.key ?? ''
+  const key = await keyOf(/tick me/)
+  // The row's button reads its box first, then its text.
+  const box = async () => ({ text: (await ui.find({ key }))?.text.slice(0, 4) })
 
   await ui.press({ key })
-  expect(await ui.find({ type: 'Text', text: /^\[↯\] $/ })).toBeTruthy()
+  expect((await box())?.text).toBe('[∽] ')
   await clock.advance(120)
-  expect(await mark()).toBe('#ffe45c')
-  await clock.advance(160)
-  // The spark is over; past the new-item glow too, it rests as a done todo.
-  expect(await mark()).not.toBe('#ffe45c')
-  await clock.advance(1600)
-  expect(await mark()).toBe('subtle')
+  expect((await box())?.text).toBe('[↯] ')
+  await clock.advance(120)
+  expect((await box())?.text).toBe('[╵] ')
+  await clock.advance(120)
+  expect(await ui.find({ type: 'Text', text: /^\[[∽↯╵]\] $/ })).toBeFalsy()
+  // Not the last todo: no victory rain.
+  expect(await ui.find({ type: 'Text', text: /╷/ })).toBeFalsy()
 
+  // Unticking plays nothing.
   await ui.press({ key })
-  expect(await ui.find({ type: 'Text', text: /^\[↯\] $/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: /^\[∽\] $/ })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('the last open todo ticked: rain sweeps the rule, Perun raises his axe and speaks', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'todo', args: 'the last one' })
+  await clock.advance(2000)
+  const ui = await $.ui.mount(PANE)
+  await ui.advance(1500)
+  const figure = async () => JSON.stringify((await ui.findAll({ type: 'Text', in: 'perun' })).map(t => [t.text, t.props.color, t.props.backgroundColor]))
+  const still = await figure()
+
+  await ui.press({ key: (await ui.find({ type: 'Button', text: /the last one/ }))?.key ?? '' })
+  expect(await ui.find({ type: 'Text', text: /Veles is driven back to Nav\./ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /╷/ })).toBeTruthy()
+  await ui.advance(500)
+  expect(await figure()).not.toBe(still)
+
+  await clock.advance(4500)
+  expect(await ui.find({ type: 'Text', text: /╷/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: /All quiet in Prav\./ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('a search that finds nothing: Veles hides it', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'note', args: 'oak' })
+  await clock.advance(2000)
+  const ui = await $.ui.mount(PANE)
+  await ui.input({ key: 'search', text: 'birch', kind: 'change' })
+  expect(await ui.find({ type: 'Text', text: /^Veles hides it\.$/ })).toBeTruthy()
   await ui.unmount()
 })
 
@@ -315,6 +455,7 @@ test('Perun idles: over half a minute he does several different things', async (
 })
 
 test('the add field grows to fit its text, and shrinks once added', async ($, on) => {
+  const clock = mock.clock(on)
   on('command.register', () => ({ value: { command: 'x' } }))
   on('tool.register', () => ({ value: {} }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -336,6 +477,7 @@ test('the add field grows to fit its text, and shrinks once added', async ($, on
   expect(await rows()).toBe(8)
 
   await ui.input({ key: 'draft', text: long })
+  await clock.advance(2000)
   expect(await rows()).toBe(1)
   expect(await ui.find({ type: 'Text', text: /check the relay/ })).toBeTruthy()
   await ui.unmount()
