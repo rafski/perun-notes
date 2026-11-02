@@ -18,6 +18,8 @@ declare module 'claude-code' {
       lastQuestion: string
       lastAnswer: string
       draftKind: 'note' | 'todo'
+      // The add field's text so far.
+      draft: string
       expanded: string
       lastDeleted: Note[]
       query: string

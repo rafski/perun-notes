@@ -313,3 +313,30 @@ test('Perun idles: over half a minute he does several different things', async (
   expect(looks.size).toBeGreaterThan(5)
   await ui.unmount()
 })
+
+test('the add field grows to fit its text, and shrinks once added', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+  const rows = async () => (await ui.find({ type: 'Input', key: 'draft' }))?.props.rows
+  expect(await rows()).toBe(1)
+
+  const long = 'check the relay logs for rotated keys and then write the summary for the team'
+  await ui.input({ key: 'draft', text: long, kind: 'change' })
+  expect(await rows()).toBeGreaterThan(2)
+  await ui.input({ key: 'draft', text: 'a\nb\nc', kind: 'change' })
+  expect(await rows()).toBe(3)
+  await ui.input({ key: 'draft', text: (long + ' ').repeat(10), kind: 'change' })
+  expect(await rows()).toBe(8)
+
+  await ui.input({ key: 'draft', text: long })
+  expect(await rows()).toBe(1)
+  expect(await ui.find({ type: 'Text', text: /check the relay/ })).toBeTruthy()
+  await ui.unmount()
+})

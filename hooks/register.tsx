@@ -12,6 +12,9 @@ const project = atom({ plugin: 'perun-notes', key: 'project' } as const, '')
 const lastQuestion = atom({ plugin: 'perun-notes', key: 'lastQuestion' } as const, '')
 const lastAnswer = atom({ plugin: 'perun-notes', key: 'lastAnswer' } as const, '')
 const draftKind = atom({ plugin: 'perun-notes', key: 'draftKind' } as const, 'note')
+// What is typed in the add field so far, so the field can grow to fit it.
+const draft = atom({ plugin: 'perun-notes', key: 'draft' } as const, '')
+const DRAFT_MAX_ROWS = 8
 const expanded = atom({ plugin: 'perun-notes', key: 'expanded' } as const, '')
 const lastDeleted = atom({ plugin: 'perun-notes', key: 'lastDeleted' } as const, [])
 const query = atom({ plugin: 'perun-notes', key: 'query' } as const, '')
@@ -155,6 +158,10 @@ const wrapRows = (text: string, width: number) => {
   }
   return rows
 }
+
+// How many rows a text takes wrapped to a width, each typed line at least one.
+const rowCount = (text: string, width: number) =>
+  text.split('\n').reduce((sum, line) => sum + wrapRows(line, width).length, 0)
 
 const oneLine = (text: string, width: number) => {
   const line = text.replace(/\s+/g, ' ').trim()
@@ -334,6 +341,7 @@ export const register: Register = on => {
     const list = all.filter(n => matches(n, q))
     const isSearching = q !== ''
     const kind = await read($, draftKind)
+    const typed = await read($, draft)
     const open = await read($, expanded)
     const deleted = await read($, lastDeleted)
     const strikeCount = await read($, strikes)
@@ -343,6 +351,10 @@ export const register: Register = on => {
     const w = Math.max(24, e.props.bodyColumns ?? 40)
     // The pane pads one column on each side.
     const inner = w - 2
+
+    const draftLabel = kind === 'todo' ? '[ ] ' : '+ '
+    // The field's width: the row less its label and the submit hint beside it.
+    const draftWidth = Math.max(8, inner - draftLabel.length - ' ↵ add'.length)
 
     const todos = list.filter(n => n.kind === 'todo')
     const pins = list.filter(n => n.kind === 'pin')
@@ -511,12 +523,18 @@ export const register: Register = on => {
           {Input ? (
             <Input
               key="draft"
-              value=""
+              value={typed}
               autoFocus
-              label={kind === 'todo' ? '[ ] ' : '+ '}
+              label={draftLabel}
               placeholder={kind === 'todo' ? 'a todo…' : 'a note… (todo: makes a todo)'}
               submitLabel="add"
-              onSubmit={value => addTyped($, value, kind)}
+              // Grows with the text, up to a limit; past it the field scrolls.
+              rows={Math.min(DRAFT_MAX_ROWS, rowCount(typed, draftWidth))}
+              onInput={value => update($, draft, () => value)}
+              onSubmit={async value => {
+                await update($, draft, () => '')
+                await addTyped($, value, kind)
+              }}
             />
           ) : (
             <Text dimColor>add with /note or /todo</Text>
