@@ -7,7 +7,7 @@ import { MASCOT_COLUMNS, mascotSvg } from './mascot-art'
 const PANE = 'notes'
 const TITLE = 'Perun Notes'
 // Keep in step with .claude-plugin/plugin.json; the engine does not hand a plugin its version.
-const VERSION = '0.1.5'
+const VERSION = '0.1.6'
 
 const notes = atom({ plugin: 'perun-notes', key: 'notes' } as const, [])
 const project = atom({ plugin: 'perun-notes', key: 'project' } as const, '')
@@ -559,25 +559,26 @@ export const register: Register = on => {
       )
     }
 
+    // Drawn like a pin: a bar down the left, one line until opened, then when it was written.
     const noteRow = (n: Note) => {
       const depth = depthOf(n.id)
       if (depth !== undefined) return underRow(n, depth)
       const isOpen = open === n.id
-      const time = clock(n.at)
+      const lines = isOpen ? wrapRows(n.text, inner - 2) : [oneLine(n.text, inner - 2)]
+      const bar = <Text color={n.id === lit ? C.accent : C.note}>▍ </Text>
       return (
-        <Box key={n.id} flexDirection="column" marginBottom={isOpen ? 1 : 0}>
-          <Box justifyContent="space-between">
-            <Button key={`open-${n.id}`} plain onPress={() => toggleOpen(n.id)}>
-              <Text color={n.id === lit ? C.accent : C.note}>{isOpen ? '▾ ' : n.id === lit ? '✦ ' : '• '}</Text>
-              {isOpen ? <Text>{''}</Text> : rowText(n, inner - time.length - 1, n.id === lit)}
-            </Button>
-            <Text color={C.faint}>{time}</Text>
-          </Box>
-          {isOpen && (
-            <Box paddingLeft={2}>
-              <Text>{n.text}</Text>
-            </Box>
-          )}
+        <Box key={n.id} flexDirection="column" marginBottom={1}>
+          <Button key={`open-${n.id}`} plain onPress={() => toggleOpen(n.id)}>
+            {bar}
+            {rowText(n, inner - 2, n.id === lit, false, lines[0] ?? '')}
+          </Button>
+          {lines.slice(1).map(line => (
+            <Text>
+              {bar}
+              {line}
+            </Text>
+          ))}
+          <Text color={C.faint}>{`  — ${clock(n.at)}`}</Text>
           {isOpen && actions(n)}
         </Box>
       )

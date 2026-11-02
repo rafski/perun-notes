@@ -194,7 +194,8 @@ test('a new note: Perun taps his blade and the note is carved in, chips flying',
   expect(await row()).not.toMatch(/oak/)
   await clock.advance(400)
   expect(await row()).toMatch(/thunder over the oak$/)
-  expect(await ui.find({ type: 'Text', text: /✦/ })).toBeTruthy()
+  // Its bar glows while it is new.
+  expect((await ui.find({ type: 'Text', text: /^▍ $/ }))?.props.color).toBe('claude')
   await ui.unmount()
 })
 
@@ -519,5 +520,30 @@ test('a long todo wraps to show all of it, barred like a pin', async ($, on) => 
   expect(rows.length).toBeGreaterThan(1)
   for (const row of rows) expect(row.length).toBeLessThanOrEqual(38)
   expect(await ui.find({ type: 'Text', text: /^  — added · \d\d:\d\d$/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('a note is barred like a pin: one line until opened, then all of it', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'note', args: 'the relay rotates its keys monthly, and every client has to fetch the new one' })
+  await clock.advance(2000)
+  const ui = await $.ui.mount(PANE)
+  const barred = async () => (await ui.findAll({ type: 'Text' })).filter(t => t.text.startsWith('▍ '))
+
+  const row = await ui.find({ type: 'Button', text: /^▍ the relay/ })
+  expect(row?.text).toMatch(/…$/)
+  expect(await ui.find({ type: 'Text', text: /^  — \d\d:\d\d$/ })).toBeTruthy()
+
+  await ui.press({ key: row?.key ?? '' })
+  expect((await barred()).length).toBeGreaterThan(1)
+  expect((await ui.findAll({ type: 'Text' })).some(t => t.text.includes('new one'))).toBe(true)
+  expect(await ui.find({ key: `del-${(row?.key ?? '').slice(5)}` })).toBeTruthy()
   await ui.unmount()
 })
