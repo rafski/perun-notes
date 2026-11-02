@@ -496,3 +496,27 @@ test('the version shows at the bottom right', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /^v\d+\.\d+\.\d+$/ })).toBeTruthy()
   await ui.unmount()
 })
+
+test('a long todo wraps to show all of it', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('tool.register', () => ({ value: {} }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  const long = 'rotate the relay signing key and update every client that pins the old one before friday'
+  await $.command.run({ command: 'todo', args: long })
+  await clock.advance(2000)
+  const ui = await $.ui.mount(PANE)
+
+  const shown = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(shown.some(t => t.includes('…'))).toBe(false)
+  for (const word of ['rotate', 'pins', 'friday']) expect(shown.some(t => t.includes(word))).toBe(true)
+  // 40 wide, less padding, box and the two buttons: 30 a row.
+  const rows = shown.filter(t => t.length > 0 && long.includes(t.trim()) && t.trim().length > 3)
+  expect(rows.length).toBeGreaterThan(2)
+  for (const row of rows) expect(row.length).toBeLessThanOrEqual(30)
+  await ui.unmount()
+})

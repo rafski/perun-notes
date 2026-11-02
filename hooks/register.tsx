@@ -7,7 +7,7 @@ import { MASCOT_COLUMNS, mascotSvg } from './mascot-art'
 const PANE = 'notes'
 const TITLE = 'Perun Notes'
 // Keep in step with .claude-plugin/plugin.json; the engine does not hand a plugin its version.
-const VERSION = '0.1.3'
+const VERSION = '0.1.4'
 
 const notes = atom({ plugin: 'perun-notes', key: 'notes' } as const, [])
 const project = atom({ plugin: 'perun-notes', key: 'project' } as const, '')
@@ -482,9 +482,10 @@ export const register: Register = on => {
       sinking.id === id ? sinking.frame : rising.id === id ? 3 - rising.frame : undefined
 
     // A row's text as drawn, carved or flown over when it is.
-    const rowText = (n: Note, room: number, bold?: boolean, dim?: boolean) => {
+    // `line` is the text to draw on this row, one line of the item when it wraps.
+    const rowText = (n: Note, room: number, bold?: boolean, dim?: boolean, line = oneLine(n.text, room)) => {
       if (flying.id === n.id) {
-        const { before, after } = flown(oneLine(n.text, room), room, flying.frame)
+        const { before, after } = flown(line, room, flying.frame)
         return (
           <Text dimColor={dim}>
             {before}
@@ -495,7 +496,6 @@ export const register: Register = on => {
           </Text>
         )
       }
-      const line = oneLine(n.text, room)
       if (carving.id === n.id) {
         const { cut, chips } = carved(line, carving.frame)
         return (
@@ -710,32 +710,49 @@ export const register: Register = on => {
         {(!isSearching || todos.length > 0) && todos.length === 0 && (
           <Text color={C.faint}>nothing to do</Text>
         )}
-        {sortedTodos.map(n => depthOf(n.id) !== undefined ? underRow(n, depthOf(n.id) ?? 0) : (
-          <Box key={n.id} justifyContent="space-between">
-            <Button key={`done-${n.id}`} plain onPress={() => toggleDone($, n.id)}>
-              {sparked.id === n.id ? (
-                // The serpent in the box, struck, then the rain.
-                <Text color={[C.pin, LIGHTNING, RAIN][sparked.frame] ?? C.todo} bold>
-                  {['[∽] ', '[↯] ', '[╵] '][sparked.frame] ?? '[✓] '}
-                </Text>
-              ) : carving.id === n.id ? (
-                // Perun's thunder mark, cut into the new todo's box.
-                <Text color={LIGHTNING}>{'[✲] '}</Text>
-              ) : (
-                <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
-              )}
-              {rowText(n, inner - 8, n.id === lit, n.isDone)}
-            </Button>
-            <Box columnGap={1}>
-              <Button key={`send-${n.id}`} plain onPress={() => send($, asMessage(n), n.id)}>
-                <Text color={C.faint}>↗</Text>
-              </Button>
-              <Button key={`del-${n.id}`} plain onPress={() => remove($, n.id)}>
-                <Text color={C.faint}>×</Text>
-              </Button>
+        {sortedTodos.map(n => {
+          const depth = depthOf(n.id)
+          if (depth !== undefined) return underRow(n, depth)
+          // The whole todo shows, wrapped; while it is being carved, only its first row.
+          const room = inner - 8
+          const lines = wrapRows(n.text, room)
+          const more = carving.id === n.id ? [] : lines.slice(1)
+          return (
+            <Box key={n.id} flexDirection="column">
+              <Box justifyContent="space-between">
+                <Button key={`done-${n.id}`} plain onPress={() => toggleDone($, n.id)}>
+                  {sparked.id === n.id ? (
+                    // The serpent in the box, struck, then the rain.
+                    <Text color={[C.pin, LIGHTNING, RAIN][sparked.frame] ?? C.todo} bold>
+                      {['[∽] ', '[↯] ', '[╵] '][sparked.frame] ?? '[✓] '}
+                    </Text>
+                  ) : carving.id === n.id ? (
+                    // Perun's thunder mark, cut into the new todo's box.
+                    <Text color={LIGHTNING}>{'[✲] '}</Text>
+                  ) : (
+                    <Text color={n.id === lit ? C.accent : n.isDone ? C.faint : C.todo}>{n.isDone ? '[✓] ' : '[ ] '}</Text>
+                  )}
+                  {rowText(n, room, n.id === lit, n.isDone, lines[0] ?? '')}
+                </Button>
+                <Box columnGap={1}>
+                  <Button key={`send-${n.id}`} plain onPress={() => send($, asMessage(n), n.id)}>
+                    <Text color={C.faint}>↗</Text>
+                  </Button>
+                  <Button key={`del-${n.id}`} plain onPress={() => remove($, n.id)}>
+                    <Text color={C.faint}>×</Text>
+                  </Button>
+                </Box>
+              </Box>
+              {more.map((line, i) => (
+                <Box key={`more-${n.id}-${i}`} paddingLeft={4}>
+                  <Text dimColor={n.isDone} strikethrough={n.isDone} bold={n.id === lit}>
+                    {line}
+                  </Text>
+                </Box>
+              ))}
             </Box>
-          </Box>
-        ))}
+          )
+        })}
 
         {(!isSearching || pins.length > 0) && rule('pinned', C.pin, pins.length > 0 ? String(pins.length) : '')}
         {(!isSearching || pins.length > 0) && pins.length === 0 && (
